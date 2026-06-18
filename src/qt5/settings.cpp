@@ -134,13 +134,16 @@ config_load(Config * config)
 		config->mem_size = 16;
 	}
 
-	sText = settings.value("vram_size", "").toString();
-	if (!QString::compare(sText, "", Qt::CaseInsensitive)) {
-		config->vram_size = 8;
-	} else if (!QString::compare(sText, "0", Qt::CaseInsensitive)) {
-		config->vram_size = 0;
-	} else {
-		config->vram_size = 8;
+	sText = settings.value("vram_size", "2").toString();
+	{
+		bool ok = false;
+		unsigned v = sText.toUInt(&ok);
+		// Authentic Risc PC VRAM SIMM sizes were 0/1/2 MB; 8 is the emulator-only
+		// option enabled by the in-memory ROM patch.  Anything else falls back to 2.
+		if (!ok || (v != 0 && v != 1 && v != 2 && v != 8)) {
+			v = 2;
+		}
+		config->vram_size = v;
 	}
 
 	sText = settings.value("model", "").toString();
@@ -276,11 +279,8 @@ config_save(Config *config)
 	sprintf(s, "%s", models[machine.model].name_config);
 	settings.setValue("model", s);
 
-	if (config->vram_size != 0) {
-		settings.setValue("vram_size", "2");
-	} else {
-		settings.setValue("vram_size", "0");
-	}
+	// Write the actual VRAM size the user selected (0/1/2/8 MB)
+	settings.setValue("vram_size", QString::number(config->vram_size));
 
 	settings.setValue("sound_enabled",   config->soundenabled);
 	settings.setValue("refresh_rate",    config->refresh);

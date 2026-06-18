@@ -65,7 +65,7 @@ private:
 	QGroupBox *mem_group_box;
 
 	QButtonGroup *vram_group;
-	QRadioButton *vram_0, *vram_2;
+	QRadioButton *vram_0, *vram_1, *vram_2, *vram_8;
 	QVBoxLayout *vram_vbox;
 	QGroupBox *vram_group_box;
 

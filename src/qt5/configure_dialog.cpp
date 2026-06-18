@@ -85,17 +85,24 @@ ConfigureDialog::ConfigureDialog(Emulator &emulator, Config *config_copy, Model 
 	mem_group_box = new QGroupBox("RAM");
 	mem_group_box->setLayout(mem_vbox);
 
-	// Create VRAM group
+	// Create VRAM group — None / 1 / 2 / 8 MB (authentic hardware sizes
+	// plus the 8 MB option enabled by the ROM patch)
 	vram_0 = new QRadioButton("None");
-	vram_2 = new QRadioButton("2 MB (8 MB if OS supported)");
+	vram_1 = new QRadioButton("1 MB");
+	vram_2 = new QRadioButton("2 MB");
+	vram_8 = new QRadioButton("8 MB (requires patched ROM)");
 
 	vram_group = new QButtonGroup();
 	vram_group->addButton(vram_0);
+	vram_group->addButton(vram_1);
 	vram_group->addButton(vram_2);
+	vram_group->addButton(vram_8);
 
 	vram_vbox = new QVBoxLayout();
 	vram_vbox->addWidget(vram_0);
+	vram_vbox->addWidget(vram_1);
 	vram_vbox->addWidget(vram_2);
+	vram_vbox->addWidget(vram_8);
 
 	vram_group_box = new QGroupBox("VRAM");
 	vram_group_box->setLayout(vram_vbox);
@@ -189,9 +196,11 @@ ConfigureDialog::dialog_accepted()
 	if(mem_128->isChecked()) new_config.mem_size = 128;
 	if(mem_256->isChecked()) new_config.mem_size = 256;
 
-	// VRAM
+	// VRAM — actually honour the size the user picked
 	if (vram_0->isChecked()) new_config.vram_size = 0;
-	if (vram_2->isChecked()) new_config.vram_size = 8;
+	if (vram_1->isChecked()) new_config.vram_size = 1;
+	if (vram_2->isChecked()) new_config.vram_size = 2;
+	if (vram_8->isChecked()) new_config.vram_size = 8;
 
 	// Sound
 	if(sound_checkbox->isChecked()) {
@@ -275,15 +284,16 @@ ConfigureDialog::applyConfig()
 
 	// VRAM
 	vram_0->setChecked(false);
+	vram_1->setChecked(false);
 	vram_2->setChecked(false);
+	vram_8->setChecked(false);
 
 	switch (config_copy->vram_size) {
-	case 0:
-		vram_0->setChecked(true);
-		break;
-	default:
-		vram_2->setChecked(true);
-		break;
+	case 0: vram_0->setChecked(true); break;
+	case 1: vram_1->setChecked(true); break;
+	case 2: vram_2->setChecked(true); break;
+	case 8: vram_8->setChecked(true); break;
+	default: vram_2->setChecked(true); break;
 	}
 
 	// Sound
