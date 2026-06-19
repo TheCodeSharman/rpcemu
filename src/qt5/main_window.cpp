@@ -66,10 +66,44 @@ MainDisplay::MainDisplay(Emulator &emulator, QWidget *parent)
 void
 MainDisplay::mouseMoveEvent(QMouseEvent *event)
 {
-	if((!pconfig_copy->mousehackon && mouse_captured) || full_screen) {
+	if(pconfig_copy->mousehackon && full_screen) {
+		// Follows host mouse (mousehack) in full-screen.
+		//
+		// In full-screen the emulated display is scaled (aspect-ratio
+		// preserved) into scaled_x by scaled_y and centred with an
+		// offset_x/offset_y letterbox; see calculate_scaling().  Invert
+		// that mapping to turn the host pointer position directly into a
+		// position over the emulated display.
+		//
+		// This replaces the old behaviour of dropping to capture mode and
+		// warping the host cursor to the window centre on every move.  That
+		// warp (QCursor::setPos) is blocked under Wayland, which left the
+		// pointer stuck against the edges of the screen.
+		if(scaled_x > 0 && scaled_y > 0) {
+			int x = ((event->x() - offset_x) * host_xsize) / scaled_x;
+			int y = ((event->y() - offset_y) * host_ysize) / scaled_y;
+
+			// host_xsize/host_ysize include any frontend doubling, but the
+			// backend mousehack works in un-doubled image coordinates.
+			if(double_size & VIDC_DOUBLE_X) {
+				x /= 2;
+			}
+			if(double_size & VIDC_DOUBLE_Y) {
+				y /= 2;
+			}
+
+			// Clamp so a click in the letterbox margin (or a transient
+			// doublesize mismatch on a mode change) can't send an
+			// out-of-range coordinate.
+			x = qBound(0, x, image->width() - 1);
+			y = qBound(0, y, image->height() - 1);
+
+			emit this->emulator.mouse_move_signal(x, y);
+		}
+	} else if((!pconfig_copy->mousehackon && mouse_captured) || full_screen) {
 		QPoint middle;
 
-		// In mouse capture mode move the mouse back to the middle of the window */ 
+		// In mouse capture mode move the mouse back to the middle of the window */
 		middle.setX(this->width() / 2);
 		middle.setY(this->height() / 2);
 
@@ -926,15 +960,16 @@ MainWindow::menu_fullscreen()
 		this->showFullScreen();
 
 		full_screen = true;
-		
-		// If in mousehack mode, change to a temporary mouse capture style
-		// during full screen
-		if(config_copy.mousehackon) {
-			emit this->emulator.mouse_hack_signal();
-			reenable_mousehack = true; 
-		}
-		
-		// If in mouse capture mode and not captured, the cursor will be visible, hide it
+
+		// Mousehack (follows host mouse) now works directly in full-screen
+		// by mapping the host pointer through the display scaling (see
+		// MainDisplay::mouseMoveEvent), so we no longer drop to a temporary
+		// capture mode here.  Capture mode synthesised relative motion by
+		// warping the host cursor (QCursor::setPos), which is blocked under
+		// Wayland and left the pointer stuck against the screen edges.
+
+		// Hide the host cursor: in mousehack the guest draws its own
+		// pointer, and in capture mode the cursor must be hidden anyway.
 		this->display->setCursor(Qt::BlankCursor);
 	}
 
@@ -1438,6 +1473,14 @@ MainWindow::move_host_mouse(MouseMoveUpdate mouse_update)
 {
 	QPoint pos;
 	int double_size = display->get_double_size();
+
+	// In full-screen mousehack the guest is driven directly from the host
+	// pointer (see MainDisplay::mouseMoveEvent); warping the host cursor
+	// back to follow the guest is unnecessary, would need the full-screen
+	// scaling applied, and is blocked under Wayland anyway.  Skip it.
+	if(full_screen) {
+		return;
+	}
 
 	// Do not move the mouse if rpcemu window doesn't have the focus
 	if(false == infocus) {
