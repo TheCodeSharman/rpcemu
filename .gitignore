@@ -1,0 +1,33 @@
+# RPCEmu derived / local files
+#
+# Build artefacts and locally-generated runtime files only.  Source that
+# upstream ships (including the hand-written Makefiles under riscos-progs/
+# and the default cmos.ram / rpc.cfg) is deliberately NOT ignored.
+
+# --- Qt5 / qmake build artefacts (generated in src/qt5/) ---
+/src/qt5/Makefile
+/src/qt5/Makefile.Debug
+/src/qt5/Makefile.Release
+/src/qt5/.qmake.stash
+/src/qt5/object_script.*
+/src/qt5/release/
+/src/qt5/debug/
+
+# Compiled objects and qmake-generated sources (moc_*, qrc_*, ui_*)
+*.o
+moc_*.cpp
+qrc_*.cpp
+ui_*.h
+
+# --- Built emulator binaries (qmake writes these to the repo root) ---
+/rpcemu-interpreter*
+/rpcemu-recompiler*
+/RPCEmu-Interpreter*
+/RPCEmu-Recompiler*
+
+# --- Runtime-generated files ---
+rpclog.txt
+
+# --- Local ROM and hard-disc images (large / copyrighted — never commit) ---
+/roms/*.rom
+*.hdf
