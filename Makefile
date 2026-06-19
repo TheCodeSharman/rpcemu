@@ -5,8 +5,9 @@
 #                   (switching updates the source but never the binary)
 #   make recompiler build the dynarec target (unstable; prefer interpreter)
 #   make clean      remove build artefacts
-#   make run        build + run the interpreter
-#                   override the Qt platform, e.g. `make run QPA=wayland`
+#   make run        build + run the interpreter; defaults to native Wayland
+#                   with an automatic X11/XWayland fallback. Force a platform
+#                   with e.g. `make run QPA=xcb`.
 #
 # This wrapper lives on the upstream branch (git-conversion infra); it is not
 # part of upstream RPCEmu and stays out of feature-vs-upstream diffs.
@@ -14,7 +15,9 @@
 QT5DIR := src/qt5
 PRO    := rpcemu.pro
 JOBS   := $(shell nproc)
-QPA    ?= xcb
+# Qt platform for `make run`: try native Wayland, fall back to X11 if there's
+# no Wayland compositor (or qtwayland isn't installed).
+QPA    ?= wayland;xcb
 
 .PHONY: all interpreter recompiler rebuild clean run
 
@@ -35,4 +38,4 @@ clean:
 	$(RM) rpcemu-interpreter rpcemu-recompiler
 
 run: interpreter
-	QT_QPA_PLATFORM=$(QPA) ./rpcemu-interpreter
+	QT_QPA_PLATFORM="$(QPA)" ./rpcemu-interpreter
