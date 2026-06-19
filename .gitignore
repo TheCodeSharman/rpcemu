@@ -28,6 +28,12 @@ ui_*.h
 # --- Runtime-generated files ---
 rpclog.txt
 
+# CMOS NVRAM and GUI config: auto-generated with sensible defaults if absent
+# (cmos_init() / config_load()), so kept local rather than tracked.  Shipped
+# by upstream, so re-ignore these after a future RPCEmu import.
+/cmos.ram
+/rpc.cfg
+
 # --- Local ROM and hard-disc images (large / copyrighted — never commit) ---
 /roms/*.rom
 *.hdf
