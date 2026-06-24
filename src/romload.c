@@ -70,6 +70,10 @@ static const rom_patch_t rom_patch[] = {
 static void
 romload_patch(void)
 {
+	if (config.vram_size != 8) {
+		rpclog("romload: skipping 8MB VRAM patches (vram_size=%u — patch only applies when 8 MB is explicitly configured)\n", config.vram_size);
+		return;
+	}
 	const rom_patch_t *p;
 	size_t i;
 
