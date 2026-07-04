@@ -121,7 +121,7 @@ static struct
         unsigned char fdisk;
         int pos;
         int packlen;
-        int spt[2], hpc[2];
+        int spt[2], hpc[2], cylinders[2];
         int packetstatus;
         int cdpos,cdlen;
         unsigned char asc;
@@ -202,8 +202,8 @@ ide_identify(void)
 {
 	memset(ide.buffer, 0, 512);
 
-	//ide.buffer[1] = 101; /* Cylinders */
-	ide.buffer[1] = 65535; /* Cylinders */
+	/* Cylinders from the image size (see loadhd). */
+	ide.buffer[1] = (uint16_t) ide.cylinders[ide.drive];
 	ide.buffer[3] = 16;  /* Heads */
 	ide.buffer[6] = 63;  /* Sectors */
 	ide_padstr((char *) (ide.buffer + 10), "", 20); /* Serial Number */
@@ -411,6 +411,14 @@ loadhd(int d, const char *filename)
 	const off64_t filesize = ftello64(ide.hdfile[d]);
 
 	ide_image_set_spt_hpc_skip512(ide.hdfile[d], d);
+
+	/* Report the true disc size: cylinders from the image, capped at 65535. */
+	{
+		const off64_t cyls = filesize / ((off64_t) 16 * 63 * 512);
+		ide.cylinders[d] = (cyls > 65535) ? 65535 : (int) cyls;
+		rpclog("IDE: drive %d: reporting %d cylinders (16h/63s) from image size\n",
+			d, ide.cylinders[d]);
+	}
 
 	rpclog("IDE: Loaded file '%s' as IDE disc %d, size %" PRId64 " MB (%" PRId64 ")%s\n",
 		filename,
