@@ -28,6 +28,7 @@ let
   setup = pkgs.writeShellScript "rpcemu-freeway-up" ''
     set -eu
     ip=${pkgs.iproute2}/bin/ip
+    arptables=${pkgs.iptables}/bin/arptables
 
     # Persistent tap owned by the RPCEmu user, so RPCEmu attaches unprivileged.
     $ip tuntap add dev ${cfg.tap} mode tap user ${cfg.owner} 2>/dev/null || true
@@ -44,6 +45,17 @@ let
       echo 1 > /proc/sys/net/ipv4/conf/$i/proxy_arp
       echo 2 > /proc/sys/net/ipv4/conf/$i/rp_filter
     done
+
+    # Scope the tap's proxy-ARP to the LAN subnet. RISC OS / Acorn Access also
+    # brings up an AUN ("Econet over IP") identity on an off-subnet 1.x address
+    # and does duplicate-address-detection for it. Blunt proxy_arp would answer
+    # that DAD (the 1.x address routes off-tap via the default gateway, so it
+    # looks proxiable) and the guest's Internet module wedges with a bogus
+    # "duplicate IP", taking the real LAN interface down with it. Drop any proxy
+    # REPLY out the tap whose answered address is outside the LAN subnet, so the
+    # host only ever answers for genuine LAN peers. Idempotent (delete then add).
+    $arptables -D OUTPUT -o ${cfg.tap} --opcode Reply ! -s ${cfg.lanSubnet} -j DROP 2>/dev/null || true
+    $arptables -A OUTPUT -o ${cfg.tap} --opcode Reply ! -s ${cfg.lanSubnet} -j DROP
   '';
 in
 {
@@ -85,6 +97,18 @@ in
       type = lib.types.str;
       default = "192.168.88.255";
       description = "LAN broadcast address.";
+    };
+
+    lanSubnet = lib.mkOption {
+      type = lib.types.str;
+      default = "192.168.88.0/24";
+      description = ''
+        The LAN subnet (CIDR) the guest lives on. The tap's proxy-ARP is scoped
+        to this so the host only ever answers ARP for genuine LAN peers, never
+        for the off-subnet AUN/Econet identity RISC OS also brings up (which
+        would otherwise wedge the guest's Internet module with a bogus
+        duplicate-IP). No specific peer address is named — just the subnet.
+      '';
     };
 
     port = lib.mkOption {
