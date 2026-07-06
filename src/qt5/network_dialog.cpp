@@ -40,6 +40,7 @@ NetworkDialog::NetworkDialog(Emulator &emulator, Config *config_copy, QWidget *p
 	net_nat = new QRadioButton("Network Address Translation (NAT)");
 	net_bridging = new QRadioButton("Ethernet Bridging");
 	net_tunnelling = new QRadioButton("IP Tunnelling");
+	net_tunnelling_tap = new QRadioButton("IP Tunnelling (pre-created TAP)");
 
 	bridge_label = new QLabel("Bridge Name");
 	bridge_name = new QLineEdit(QString("rpcemu"));
@@ -57,6 +58,14 @@ NetworkDialog::NetworkDialog(Emulator &emulator, Config *config_copy, QWidget *p
 	tunnelling_hbox->addWidget(tunnelling_label);
 	tunnelling_hbox->addWidget(tunnelling_name);
 
+	tunnelif_label = new QLabel("Tunnel Interface");
+	tunnelif_name = new QLineEdit(QString("rpctap0"));
+	tunnelif_name->setMinimumWidth(192);
+	tunnelif_hbox = new QHBoxLayout();
+	tunnelif_hbox->insertSpacing(0, 48);
+	tunnelif_hbox->addWidget(tunnelif_label);
+	tunnelif_hbox->addWidget(tunnelif_name);
+
 	// Create Buttons
 	buttons_box = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
 
@@ -72,6 +81,8 @@ NetworkDialog::NetworkDialog(Emulator &emulator, Config *config_copy, QWidget *p
 #if defined(Q_OS_LINUX)
 	vbox->addWidget(net_tunnelling);
 	vbox->addLayout(tunnelling_hbox);
+	vbox->addWidget(net_tunnelling_tap);
+	vbox->addLayout(tunnelif_hbox);
 #endif /* linux */
 
 	vbox->addWidget(buttons_box);
@@ -81,6 +92,7 @@ NetworkDialog::NetworkDialog(Emulator &emulator, Config *config_copy, QWidget *p
 	connect(net_nat, &QRadioButton::clicked, this, &NetworkDialog::radio_clicked);
 	connect(net_bridging, &QRadioButton::clicked, this, &NetworkDialog::radio_clicked);
 	connect(net_tunnelling, &QRadioButton::clicked, this, &NetworkDialog::radio_clicked);
+	connect(net_tunnelling_tap, &QRadioButton::clicked, this, &NetworkDialog::radio_clicked);
 
 	connect(buttons_box, &QDialogButtonBox::accepted, this, &QDialog::accept);
 	connect(buttons_box, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -117,6 +129,14 @@ NetworkDialog::radio_clicked()
 		tunnelling_label->setEnabled(false);
 		tunnelling_name->setEnabled(false);
 	}
+
+	if (net_tunnelling_tap->isChecked()) {
+		tunnelif_label->setEnabled(true);
+		tunnelif_name->setEnabled(true);
+	} else {
+		tunnelif_label->setEnabled(false);
+		tunnelif_name->setEnabled(false);
+	}
 }
 
 /**
@@ -125,8 +145,8 @@ NetworkDialog::radio_clicked()
 void
 NetworkDialog::dialog_accepted()
 {
-	QByteArray ba_bridgename, ba_ipaddress;
-	char *bridgename, *ipaddress;
+	QByteArray ba_bridgename, ba_ipaddress, ba_tunnelif;
+	char *bridgename, *ipaddress, *tunnelif;
 	NetworkType network_type = NetworkType_Off;
 
 	// Take a copy of the existing config
@@ -142,6 +162,8 @@ NetworkDialog::dialog_accepted()
 		network_type = NetworkType_EthernetBridging;
 	} else if (net_tunnelling->isChecked()) {
 		network_type = NetworkType_IPTunnelling;
+	} else if (net_tunnelling_tap->isChecked()) {
+		network_type = NetworkType_IPTunnellingTap;
 	}
 
 	new_config.network_type = network_type;
@@ -161,13 +183,16 @@ NetworkDialog::dialog_accepted()
 
 	// Update network config in emulator thread
 	emit this->emulator.network_config_updated_signal(network_type,
-	    bridge_name->text(), tunnelling_name->text());
+	    bridge_name->text(), tunnelling_name->text(), tunnelif_name->text());
 
 	ba_bridgename = bridge_name->text().toUtf8();
 	bridgename = ba_bridgename.data();
 
 	ba_ipaddress = tunnelling_name->text().toUtf8();
 	ipaddress = ba_ipaddress.data();
+
+	ba_tunnelif = tunnelif_name->text().toUtf8();
+	tunnelif = ba_tunnelif.data();
 
 	// Apply configuration settings from Dialog to config_copy
 	config_copy->network_type = network_type;
@@ -182,6 +207,12 @@ NetworkDialog::dialog_accepted()
 	} else if (strcmp(config_copy->ipaddress, ipaddress) != 0) {
 		free(config_copy->ipaddress);
 		config_copy->ipaddress = strdup(ipaddress);
+	}
+	if (config_copy->tunnel_ifname == NULL) {
+		config_copy->tunnel_ifname = strdup(tunnelif);
+	} else if (strcmp(config_copy->tunnel_ifname, tunnelif) != 0) {
+		free(config_copy->tunnel_ifname);
+		config_copy->tunnel_ifname = strdup(tunnelif);
 	}
 }
 
@@ -209,6 +240,7 @@ NetworkDialog::applyConfig()
 	net_nat->setChecked(false);
 	net_bridging->setChecked(false);
 	net_tunnelling->setChecked(false);
+	net_tunnelling_tap->setChecked(false);
 	switch (config_copy->network_type) {
 	case NetworkType_Off:
 		net_off->setChecked(true);
@@ -222,6 +254,9 @@ NetworkDialog::applyConfig()
 	case NetworkType_IPTunnelling:
 		net_tunnelling->setChecked(true);
 		break;
+	case NetworkType_IPTunnellingTap:
+		net_tunnelling_tap->setChecked(true);
+		break;
 	}
 
 	// Use the helper function to grey out the boxes of unselected
@@ -234,5 +269,9 @@ NetworkDialog::applyConfig()
 
 	if(config_copy->ipaddress && config_copy->ipaddress[0] != '\0') {
 		tunnelling_name->setText(config_copy->ipaddress);
+	}
+
+	if(config_copy->tunnel_ifname && config_copy->tunnel_ifname[0] != '\0') {
+		tunnelif_name->setText(config_copy->tunnel_ifname);
 	}
 }
