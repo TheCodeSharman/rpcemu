@@ -238,11 +238,12 @@ strcpyfromhost(uint32_t dest, const char *source)
  * @param networktype New network type value
  * @param bridgename  String of new bridgename value (zero terminated), caller owns (copy taken)
  * @param ipaddress   String of new ipaddress value (zero terminated), caller owns (copy taken)
+ * @param tunnelinterface String of new tunnel interface name (zero terminated), caller owns (copy taken)
  * @return Non-zero if these config changes require an emulator restart
  */
 int
 network_config_changed(NetworkType network_type, const char *bridgename,
-                       const char *ipaddress)
+                       const char *ipaddress, const char *tunnelinterface)
 {
 	int restart_required = 0;
 
@@ -303,6 +304,32 @@ network_config_changed(NetworkType network_type, const char *bridgename,
 		}
 	}
 
+	if (tunnelinterface == NULL && config.tunnel_ifname != NULL) {
+		/* Turned off */
+		free(config.tunnel_ifname);
+		config.tunnel_ifname = NULL;
+		if (config.network_type == NetworkType_IPTunnellingTap) {
+			restart_required = 1;
+		}
+	} else if (tunnelinterface != NULL && config.tunnel_ifname == NULL) {
+		/* Turned on */
+		config.tunnel_ifname = strdup(tunnelinterface);
+		if (config.network_type == NetworkType_IPTunnellingTap) {
+			restart_required = 1;
+		}
+	} else {
+		if (tunnelinterface != NULL && config.tunnel_ifname != NULL &&
+		    strcmp(tunnelinterface, config.tunnel_ifname) != 0)
+		{
+			/* tunnel interface changed */
+			free(config.tunnel_ifname);
+			config.tunnel_ifname = strdup(tunnelinterface);
+			if (config.network_type == NetworkType_IPTunnellingTap) {
+				restart_required = 1;
+			}
+		}
+	}
+
 	// Save the settings to the rpc.cfg file
 	config_save(&config);
 
@@ -316,7 +343,8 @@ network_init(void)
 
 	assert(config.network_type == NetworkType_NAT ||
 	       config.network_type == NetworkType_EthernetBridging ||
-	       config.network_type == NetworkType_IPTunnelling);
+	       config.network_type == NetworkType_IPTunnelling ||
+	       config.network_type == NetworkType_IPTunnellingTap);
 
 	/* Build podule header */
 	if (romdata == NULL) { // If not previously initialised
