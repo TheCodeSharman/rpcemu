@@ -29,6 +29,7 @@
 #include "mem.h"
 #include "keyboard.h"
 #include "hostfs.h"
+#include "hostcmd.h"
 
 #ifdef RPCEMU_NETWORKING
 #include "network.h"
@@ -627,6 +628,16 @@ opSWI(uint32_t opcode)
 		state.Reg = arm.reg;
 		hostfs(&state);
 
+	} else if (swinum == ARCEM_SWI_HOSTCMD) {
+		if (config.hostcmd_enabled) {
+			ARMul_State state;
+
+			state.Reg = arm.reg;
+			hostcmd(&state);
+			arm.reg[cpsr] &= ~VFLAG;	/* X-form: report success */
+		} else {
+			goto realswi;	/* disabled -> Unknown SWI; guest detects absence */
+		}
 	}
 #ifdef RPCEMU_NETWORKING
 	else if (swinum == ARCEM_SWI_NETWORK) {
