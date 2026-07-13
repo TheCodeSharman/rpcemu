@@ -23,6 +23,7 @@ HEADERS =	../superio.h \
 		../fdc.h \
 		../hostfs.h \
 		../hostcmd.h \
+		../hostcmd_proto.h \
 		../socket-compat.h \
 		../hostfs_internal.h \
 		../ide.h \

@@ -29,6 +29,7 @@
 #include <string.h>
 
 #include "../socket-compat.h"
+#include "../hostcmd_proto.h"
 #ifndef _WIN32
 #include <sys/un.h>
 #endif
@@ -45,8 +46,8 @@ default_socket_path(char *buf, size_t buflen)
 	const char *datadir = getenv("RPCEMU_DATADIR");
 
 	if (datadir != NULL && datadir[0] != '\0') {
-		size_t n = strlen(datadir);
-		const char *sep = (n > 0 && datadir[n - 1] == '/') ? "" : "/";
+		size_t n = strlen(datadir);	/* n >= 1: datadir is non-empty here */
+		const char *sep = (datadir[n - 1] == '/') ? "" : "/";
 
 		snprintf(buf, buflen, "%s%shostcmd.sock", datadir, sep);
 	} else {
@@ -98,7 +99,8 @@ connect_tcp(const char *hostport)
 		size_t n = (size_t) (colon - hostport);
 
 		if (n >= sizeof(host)) {
-			n = sizeof(host) - 1;
+			fprintf(stderr, "rpcemu-run: host name too long: %s\n", hostport);
+			return -1;
 		}
 		memcpy(host, hostport, n);
 		host[n] = '\0';
@@ -151,6 +153,37 @@ read_exact(int fd, void *buf, size_t n)
 	return 0;
 }
 
+/* Write exactly n bytes; returns 0 on success, -1 on error. */
+static int
+send_all(int fd, const void *buf, size_t n)
+{
+	const uint8_t *p = buf;
+
+	while (n > 0) {
+		ssize_t w = send(fd, (const char *) p, (int) n, 0);
+
+		if (w < 0) {
+			return -1;
+		}
+		p += w;
+		n -= (size_t) w;
+	}
+	return 0;
+}
+
+/* Read and parse one frame header into *fh. 0 on success, -1 on EOF/error. */
+static int
+read_frame_header(int fd, hc_frame_header *fh)
+{
+	uint8_t hdr[HC_FRAME_HDR_LEN];
+
+	if (read_exact(fd, hdr, sizeof hdr) != 0) {
+		return -1;
+	}
+	hc_frame_header_decode(hdr, fh);
+	return 0;
+}
+
 /*
  * Send a command line and stream the response until the 'D' frame.
  * Returns the guest return code, or -1 on a connection error.
@@ -158,50 +191,38 @@ read_exact(int fd, void *buf, size_t n)
 static int
 run_one(int fd, const char *cmdline)
 {
-	size_t clen = strlen(cmdline);
-	char *line = malloc(clen + 2);
-
-	if (line == NULL) {
-		return -1;
-	}
-	memcpy(line, cmdline, clen);
-	line[clen] = '\n';
-	line[clen + 1] = '\0';
-	if (send(fd, line, (int) (clen + 1), 0) != (ssize_t) (clen + 1)) {
-		free(line);
+	if (send_all(fd, cmdline, strlen(cmdline)) != 0 ||
+	    send_all(fd, "\n", 1) != 0) {
 		fprintf(stderr, "rpcemu-run: write failed: %s\n", strerror(errno));
 		return -1;
 	}
-	free(line);
 
 	for (;;) {
-		uint8_t hdr[5];
-		uint32_t len;
+		hc_frame_header fh;
 
-		if (read_exact(fd, hdr, 5) != 0) {
+		if (read_frame_header(fd, &fh) != 0) {
 			fprintf(stderr, "rpcemu-run: connection closed\n");
 			return -1;
 		}
-		len = ((uint32_t) hdr[1] << 24) | ((uint32_t) hdr[2] << 16) |
-		      ((uint32_t) hdr[3] << 8) | hdr[4];
 
-		if (hdr[0] == 'D') {
+		if (fh.type == HC_FRAME_DONE) {
 			uint8_t rc[4];
 
-			if (len != 4 || read_exact(fd, rc, 4) != 0) {
+			if (fh.len != 4 || read_exact(fd, rc, 4) != 0) {
 				return -1;
 			}
-			return (int) (((uint32_t) rc[0] << 24) | ((uint32_t) rc[1] << 16) |
-			              ((uint32_t) rc[2] << 8) | rc[3]);
+			return (int) hc_get_u32(rc);
 		}
 
-		/* 'O' -> stdout, 'X' (and anything else) -> stderr. */
+		/* HC_FRAME_OUTPUT -> stdout, HC_FRAME_NOTICE (and anything else)
+		   -> stderr. The payload may be large, so stream it in chunks. */
 		{
-			FILE *out = (hdr[0] == 'O') ? stdout : stderr;
+			FILE *out = (fh.type == HC_FRAME_OUTPUT) ? stdout : stderr;
 			uint8_t buf[4096];
+			uint32_t len = fh.len;
 
 			while (len > 0) {
-				size_t chunk = (len < sizeof(buf)) ? len : sizeof(buf);
+				size_t chunk = (len < sizeof buf) ? len : sizeof buf;
 
 				if (read_exact(fd, buf, chunk) != 0) {
 					return -1;
@@ -225,6 +246,60 @@ usage(const char *argv0)
 	    "Drives the guest RISC OS command line over the emulator's HostCmd\n"
 	    "socket. Default socket: $RPCEMU_DATADIR/hostcmd.sock (or ./hostcmd.sock).\n",
 	    argv0);
+}
+
+/* One-shot: join argv[i..argc) into one command line and run it. Returns the
+   process exit status (guest return code, or 1/2 on a client-side failure). */
+static int
+run_oneshot(int fd, int argc, char **argv, int i)
+{
+	char cmd[1024];
+	size_t off = 0;
+	int rc;
+
+	cmd[0] = '\0';
+	for (; i < argc; i++) {
+		int n = snprintf(cmd + off, sizeof(cmd) - off, "%s%s",
+		    (off > 0) ? " " : "", argv[i]);
+
+		if (n < 0 || (size_t) n >= sizeof(cmd) - off) {
+			fprintf(stderr, "rpcemu-run: command too long\n");
+			return 2;
+		}
+		off += (size_t) n;
+	}
+	rc = run_one(fd, cmd);
+	return (rc < 0) ? 1 : rc;
+}
+
+/* Interactive line shell: prompt, run, repeat until EOF (Ctrl-D). */
+static int
+run_shell(int fd)
+{
+	char line[1024];
+
+	fprintf(stderr, "rpcemu-shell: connected. Ctrl-D to exit.\n");
+	for (;;) {
+		int rc;
+
+		fputs("* ", stdout);
+		fflush(stdout);
+		if (fgets(line, sizeof(line), stdin) == NULL) {
+			break;	/* EOF */
+		}
+		line[strcspn(line, "\n")] = '\0';
+		if (line[0] == '\0') {
+			continue;
+		}
+		rc = run_one(fd, line);
+		if (rc < 0) {
+			break;
+		}
+		if (rc != 0) {
+			fprintf(stderr, "[return code %d]\n", rc);
+		}
+	}
+	return 0;
 }
 
 int
@@ -306,55 +381,12 @@ main(int argc, char **argv)
 		return 1;
 	}
 
-	if (!interactive && i < argc) {
-		/* One-shot: join the remaining args into a single command line. */
-		char cmd[1024];
-		size_t off = 0;
-		int rc;
-
-		cmd[0] = '\0';
-		for (; i < argc; i++) {
-			int n = snprintf(cmd + off, sizeof(cmd) - off, "%s%s",
-			    (off > 0) ? " " : "", argv[i]);
-
-			if (n < 0 || (size_t) n >= sizeof(cmd) - off) {
-				fprintf(stderr, "rpcemu-run: command too long\n");
-				closesocket(fd);
-				return 2;
-			}
-			off += (size_t) n;
-		}
-		rc = run_one(fd, cmd);
-		closesocket(fd);
-		return (rc < 0) ? 1 : rc;
-	}
-
-	/* Interactive line shell. */
 	{
-		char line[1024];
+		int rc = (!interactive && i < argc)
+		    ? run_oneshot(fd, argc, argv, i)
+		    : run_shell(fd);
 
-		fprintf(stderr, "rpcemu-shell: connected. Ctrl-D to exit.\n");
-		for (;;) {
-			int rc;
-
-			fputs("* ", stdout);
-			fflush(stdout);
-			if (fgets(line, sizeof(line), stdin) == NULL) {
-				break;	/* EOF */
-			}
-			line[strcspn(line, "\n")] = '\0';
-			if (line[0] == '\0') {
-				continue;
-			}
-			rc = run_one(fd, line);
-			if (rc < 0) {
-				break;
-			}
-			if (rc != 0) {
-				fprintf(stderr, "[return code %d]\n", rc);
-			}
-		}
 		closesocket(fd);
+		return rc;
 	}
-	return 0;
 }

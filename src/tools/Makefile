@@ -7,7 +7,7 @@
 CC ?= cc
 CFLAGS ?= -O2 -Wall
 
-rpcemu-run: rpcemu_run.c ../socket-compat.h
+rpcemu-run: rpcemu_run.c ../socket-compat.h ../hostcmd_proto.h
 	$(CC) $(CFLAGS) -o $@ rpcemu_run.c
 
 clean:
