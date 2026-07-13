@@ -52,6 +52,7 @@ SOURCES =	../superio.c \
 		../fpa.c \
 		../hostfs.c \
 		../hostcmd.c \
+		../hostcmd_proto.c \
 		../ide.c \
 		../iomd.c \
 		../keyboard.c \
