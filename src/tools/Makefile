@@ -7,8 +7,11 @@
 CC ?= cc
 CFLAGS ?= -O2 -Wall
 
-rpcemu-run: rpcemu_run.c ../socket-compat.h ../hostcmd_proto.h
-	$(CC) $(CFLAGS) -o $@ rpcemu_run.c
+# The wire-protocol codec (../hostcmd_proto.c) is a shared module: the emulator
+# links it via src/qt5/rpcemu.pro; this standalone client compiles it in directly
+# (it does not link the emulator core).
+rpcemu-run: rpcemu_run.c ../hostcmd_proto.c ../hostcmd_proto.h ../socket-compat.h
+	$(CC) $(CFLAGS) -I.. -o $@ rpcemu_run.c ../hostcmd_proto.c
 
 clean:
 	$(RM) rpcemu-run
