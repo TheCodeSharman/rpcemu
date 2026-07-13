@@ -1,0 +1,59 @@
+REM >UnplugSwap
+REM Per-OS save/restore of the module-unplug CMOS mask on a multi-ROM swap.
+REM Called from BootRun (build.py patch_bootrun_per_os_bootcfg) on a ROM swap.
+REM
+REM The unplug mask is POSITION-keyed to ROM-module order: *Unplug <name> (or an
+REM interactive InetSetup/Configure) sets the bit for a module's slot in the
+REM CURRENT ROM. Bits set under one ROM land on DIFFERENT modules under another
+REM -- e.g. InternetA is &13 bit1 on 4.02 but &13 bit3 on 3.7, so 4.02's bit would
+REM unplug one of 3.7's core network modules. So each OS must keep its OWN mask,
+REM restored on a swap. Clearing is NOT enough: an OS does not necessarily
+REM re-assert its unplugs by name each boot (3.7 sets them via interactive
+REM Configure), so a cleared mask stays lost and its networking breaks.
+REM
+REM Reads two system variables set by BootRun:
+REM   Unplug$Save - file to save the OUTGOING OS's mask to, or "" to skip
+REM   Unplug$Load - file to restore THIS OS's mask from; if absent, clear (all on)
+REM Only the 13 unplug locations (Kernel UnplugCMOSTable Unplug7..17 + ExtnUnplug1/2)
+REM are touched -- filesystem/drive/monitor config is shared and left untouched,
+REM and the RTC clock is outside CMOS locations 0..239, so the time is undisturbed.
+DIM loc% 13, buf% 13, var% 256
+loc%?0=&D9:loc%?1=&DA:loc%?2=&DB:loc%?3=&12:loc%?4=&13:loc%?5=&09:loc%?6=&82
+loc%?7=&83:loc%?8=&8D:loc%?9=&8E:loc%?10=&E7:loc%?11=&14:loc%?12=&15
+save$=FNvar("Unplug$Save")
+load$=FNvar("Unplug$Load")
+IF save$<>"" THEN PROCsave(save$)
+IF load$<>"" THEN PROCload(load$)
+END
+:
+DEFPROCsave(f$)
+LOCAL i%
+FOR i%=0 TO 12
+SYS "OS_Byte",161,loc%?i% TO ,,buf%?i%
+NEXT
+SYS "OS_File",10,f$,&FFD,,buf%,buf%+13
+ENDPROC
+:
+DEFPROCload(f$)
+LOCAL i%,t%
+SYS "OS_File",17,f$ TO t%
+IF t%=0 THEN PROCzero:ENDPROC
+SYS "OS_File",255,f$,buf%,0
+FOR i%=0 TO 12
+SYS "OS_Byte",162,loc%?i%,buf%?i%
+NEXT
+ENDPROC
+:
+DEFPROCzero
+LOCAL i%
+FOR i%=0 TO 12
+SYS "OS_Byte",162,loc%?i%,0
+NEXT
+ENDPROC
+:
+DEFFNvar(n$)
+LOCAL l%
+SYS "XOS_ReadVarVal",n$,var%,256,0,0 TO ,,l%
+IF l%<=0 THEN =""
+var%?l%=13
+=$var%
