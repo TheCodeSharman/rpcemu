@@ -31,6 +31,7 @@
 #endif
 
 #include "hostcmd.h"
+#include "hostcmd_proto.h"
 #include "mem.h"
 #include "rpcemu.h"
 
@@ -50,10 +51,9 @@
 #define HC_STATUS_START	0u
 #define HC_STATUS_END	1u
 
-/* Server -> client frame types. */
-#define HC_FRAME_OUTPUT	'O'
-#define HC_FRAME_DONE	'D'
-#define HC_FRAME_NOTICE	'X'
+/* Frame types (HC_FRAME_*), the header layout and the BE codec live in the
+   shared hostcmd_proto.h so the emulator and the host client agree by
+   construction. */
 
 #define HC_PROTOCOL_VERSION	1
 
@@ -123,21 +123,18 @@ hc_ring_write(const uint8_t *data, size_t len)
 static void
 hc_push_frame(uint8_t type, const uint8_t *payload, uint32_t len)
 {
-	uint8_t hdr[5];
+	uint8_t hdr[HC_FRAME_HDR_LEN];
+	hc_frame_header fh = { type, len };
 
 	if (hc.client_fd < 0) {
 		return;
 	}
-	if (hc_ring_free() < (size_t) len + 5) {
+	if (hc_ring_free() < (size_t) len + HC_FRAME_HDR_LEN) {
 		rpclog("HostCmd: output ring full, dropping '%c' frame\n", type);
 		return;
 	}
-	hdr[0] = type;
-	hdr[1] = (uint8_t) (len >> 24);
-	hdr[2] = (uint8_t) (len >> 16);
-	hdr[3] = (uint8_t) (len >> 8);
-	hdr[4] = (uint8_t) len;
-	hc_ring_write(hdr, 5);
+	hc_frame_header_encode(&fh, hdr);
+	hc_ring_write(hdr, HC_FRAME_HDR_LEN);
 	hc_ring_write(payload, len);
 }
 
@@ -206,22 +203,21 @@ hostcmd(ARMul_State *state)
 		{
 			size_t freeb = hc_ring_free();
 
-			if (freeb > 5) {
-				uint32_t canpay = (uint32_t) (freeb - 5);
+			if (freeb > HC_FRAME_HDR_LEN) {
+				uint32_t canpay = (uint32_t) (freeb - HC_FRAME_HDR_LEN);
 
 				accept = (len < canpay) ? len : canpay;
 			}
 		}
 		if (accept > 0) {
-			uint8_t hdr[5];
+			uint8_t hdr[HC_FRAME_HDR_LEN];
+			hc_frame_header fh = { HC_FRAME_OUTPUT, accept };
 			uint32_t i;
 
-			hdr[0] = HC_FRAME_OUTPUT;
-			hdr[1] = (uint8_t) (accept >> 24);
-			hdr[2] = (uint8_t) (accept >> 16);
-			hdr[3] = (uint8_t) (accept >> 8);
-			hdr[4] = (uint8_t) accept;
-			hc_ring_write(hdr, 5);
+			/* Header written whole; payload is copied byte-by-byte out of
+			   guest memory below, so this can't go through hc_push_frame. */
+			hc_frame_header_encode(&fh, hdr);
+			hc_ring_write(hdr, HC_FRAME_HDR_LEN);
 			for (i = 0; i < accept; i++) {
 				hc.out_ring[hc.out_head] =
 				    (uint8_t) ARMul_LoadByte(state, ptr + i);
@@ -240,10 +236,7 @@ hostcmd(ARMul_State *state)
 			uint32_t rc = state->Reg[1];
 			uint8_t rcbuf[4];
 
-			rcbuf[0] = (uint8_t) (rc >> 24);
-			rcbuf[1] = (uint8_t) (rc >> 16);
-			rcbuf[2] = (uint8_t) (rc >> 8);
-			rcbuf[3] = (uint8_t) rc;
+			hc_put_u32(rcbuf, rc);
 			hc_push_frame(HC_FRAME_DONE, rcbuf, 4);
 			hc.cmd_inflight = 0;
 		}
@@ -568,7 +561,7 @@ hostcmd_poll(void)
 				hc.in_len = 0;
 				hc.in_overflow = 0;
 				hc.out_head = hc.out_tail = 0;
-				hc_notice("RPCEmu HostCmd v1\n");
+				hc_notice(HC_PROTO_BANNER);
 			}
 		}
 		return;
