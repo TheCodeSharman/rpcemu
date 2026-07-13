@@ -1,0 +1,55 @@
+# RPCEmu derived / local files
+#
+# Build artefacts and locally-generated runtime files only.  Source that
+# upstream ships (including the hand-written Makefiles under riscos-progs/
+# and the default cmos.ram / rpc.cfg) is deliberately NOT ignored.
+
+# --- Qt5 / qmake build artefacts (generated in src/qt5/) ---
+/src/qt5/Makefile
+/src/qt5/Makefile.Debug
+/src/qt5/Makefile.Release
+/src/qt5/.qmake.stash
+/src/qt5/object_script.*
+/src/qt5/release/
+/src/qt5/debug/
+
+# Compiled objects and qmake-generated sources (moc_*, qrc_*, ui_*)
+*.o
+moc_*.cpp
+qrc_*.cpp
+ui_*.h
+
+# --- Built emulator binaries (qmake writes these to the repo root) ---
+/rpcemu-interpreter*
+/rpcemu-recompiler*
+/RPCEmu-Interpreter*
+/RPCEmu-Recompiler*
+
+# --- Runtime-generated files ---
+rpclog.txt
+
+# CMOS NVRAM and GUI config: auto-generated with sensible defaults if absent
+# (cmos_init() / config_load()), so kept local rather than tracked.  Shipped
+# by upstream, so re-ignore these after a future RPCEmu import.
+/cmos.ram
+/rpc.cfg
+
+# --- Local ROM and hard-disc images (large / copyrighted — never commit) ---
+/roms/*.rom
+*.hdf
+
+# --- devenv / direnv (local build-environment tooling) ---
+# The pinned environment IS tracked: devenv.nix, devenv.yaml, devenv.lock, .envrc.
+# Only generated runtime state and machine-local overrides are ignored.
+/.devenv/
+.devenv.flake.nix
+devenv.local.nix
+devenv.local.yaml
+/.direnv/
+
+# --- Local RISC OS installs (ROM + disc + HostFS tree + config + runtime) ---
+# Convention: keep each RISC OS install under installs/<name>/ (e.g.
+# installs/riscos-371/) so it sits next to the binary but is never committed
+# (large, mutable, copyrighted ROMs). Each install carries a `run` launcher
+# that cd's into itself and starts the emulator through devenv.
+/installs/
