@@ -52,6 +52,7 @@
 #include "podules.h"
 #include "fdc.h"
 #include "hostfs.h"
+#include "hostcmd.h"
 #include "disc.h"
 #include "disc_adf.h"
 #include "disc_hfe.h"
@@ -208,6 +209,7 @@ resetrpc(void)
         podules_reset();
         podulerom_reset(); // must be called after podules_reset()
         hostfs_reset();
+        hostcmd_reset();
 
 #ifdef RPCEMU_NETWORKING
 	network_reset();
@@ -307,6 +309,7 @@ void
 rpcemu_start(void)
 {
 	hostfs_init();
+	hostcmd_init();
 	mem_init();
 	cp15_init();
 	arm_init();
@@ -379,6 +382,8 @@ execrpcemu(void)
 			disc_poll();
 		}
 	}
+
+	hostcmd_poll();
 
 	if (drawscre > 0) {
 		drawscr();
@@ -479,6 +484,8 @@ endrpcemu(void)
         free(rom);
         savecmos();
         config_save(&config);
+
+	hostcmd_close();
 
 #ifdef RPCEMU_NETWORKING
 	network_reset();

@@ -22,6 +22,8 @@ HEADERS =	../superio.h \
 		../cp15.h \
 		../fdc.h \
 		../hostfs.h \
+		../hostcmd.h \
+		../socket-compat.h \
 		../hostfs_internal.h \
 		../ide.h \
 		../iomd.h \
@@ -48,6 +50,7 @@ SOURCES =	../superio.c \
 		../fdc.c \
 		../fpa.c \
 		../hostfs.c \
+		../hostcmd.c \
 		../ide.c \
 		../iomd.c \
 		../keyboard.c \
