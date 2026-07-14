@@ -850,7 +850,11 @@ void callbackide(void)
         if (ide.reset)
         {
                 ide.atastat = READY_STAT;
-                ide.error=0;
+                /* Post-reset diagnostic result: 0x01 = "device 0 passed"
+                   (a real drive runs its power-on diagnostic on SRST). RISC OS 5
+                   ADFS's ProbeIDEDevices reads this and rejects the drive as
+                   absent unless it is 0x01/0x81. */
+                ide.error=1;
                 ide.secount=1;
                 ide.sector=1;
                 ide.head=0;
