@@ -281,36 +281,51 @@ ide_atapi_mode_sense(uint32_t pos)
 }
 
 /**
- * Return the sector offset for the current register values
+ * Return the logical block address for the current register values
+ * (CHS or 28-bit LBA), without any image boot-block offset.
+ *
+ * Note: LBA vs CHS is chosen purely on the addressing mode the guest
+ * selected (lba_cmd) -- it must NOT be gated on skip512. The old code
+ * fell back to CHS whenever skip512 was set, so a boot-block image
+ * accessed via LBA computed the wrong offset and corrupted data.
  */
-static off64_t
-ide_get_sector(void)
+static uint32_t
+ide_get_lba_address(void)
 {
-	if (ide.lba_cmd[ide.drive] && !ide.skip512[ide.drive]) {
-		// LBA Addressing
+	if (ide.lba_cmd[ide.drive]) {
 		// from ATA-3 head is bits 27:24, cyl is 23:8, sec is 7:0
-		return (off64_t) ((ide.head << 24) | (ide.cylinder << 8) | ide.sector);
+		return (uint32_t) ((ide.head << 24) | (ide.cylinder << 8) | ide.sector);
 	} else {
 		// CHS Addressing
 		const int heads = ide.hpc[ide.drive];
 		const int sectors = ide.spt[ide.drive];
-		const int skip = ide.skip512[ide.drive];
 
-		return ((((off64_t) ide.cylinder * heads) + ide.head) *
-		    sectors) + (ide.sector - 1) + skip;
+		return (uint32_t) ((((off64_t) ide.cylinder * heads) + ide.head) *
+		    sectors) + (ide.sector - 1);
 	}
 }
 
 /**
- * Move to the next sector using CHS addressing
+ * Return the sector index used to locate data in the host image file.
+ * The 512-byte RISC OS boot-block offset (skip512) is applied uniformly
+ * here, on top of whichever addressing mode produced the LBA.
+ */
+static off64_t
+ide_get_sector(void)
+{
+	return (off64_t) ide_get_lba_address() + ide.skip512[ide.drive];
+}
+
+/**
+ * Advance the register values to the next sector, in whichever addressing
+ * mode the guest selected (again independent of skip512).
  */
 static void
 ide_next_sector(void)
 {
-	if (ide.lba_cmd[ide.drive] && !ide.skip512[ide.drive]) {
+	if (ide.lba_cmd[ide.drive]) {
 		// LBA Addressing
-		uint32_t lba = (ide.head << 24) | (ide.cylinder << 8) | ide.sector;
-		lba++;
+		uint32_t lba = ide_get_lba_address() + 1;
 		ide.head = (lba >> 24) & 0xf;
 		ide.cylinder = (lba >> 8) & 0xffff;
 		ide.sector = lba & 0xff;
