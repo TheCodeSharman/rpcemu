@@ -45,6 +45,7 @@ void callbackide(void);
 #define DRQ_STAT		0x08 /* Data request */
 #define READY_STAT		0x40
 #define BUSY_STAT		0x80
+#define DRQ_READY_STAT		(DRQ_STAT | READY_STAT)
 
 /* Bits of 'error' */
 #define ABRT_ERR		0x04 /* Command aborted */
@@ -171,6 +172,19 @@ ide_media_error_idnf(void)
 }
 
 /**
+ * Number of addressable 512-byte logical sectors on a drive's image,
+ * excluding any 512-byte boot-block skipped at the start (skip512).
+ */
+static off64_t
+ide_hd_logical_sectors(int drive)
+{
+	if (!ide_drive_is_hdd(drive)) {
+		return 0;
+	}
+	return (ide.hd_filesize[drive] / 512) - ide.skip512[drive];
+}
+
+/**
  * Copy a string into a buffer, padding with spaces, and placing characters as
  * if they were packed into 16-bit values, stored little-endian.
  *
@@ -218,22 +232,63 @@ ide_padstr8(uint8_t *buf, int buf_size, const char *src)
 }
 
 /**
- * Fill in ide.buffer with the output of the "IDENTIFY DEVICE" command
+ * Fill in ide.buffer with the output of the "IDENTIFY DEVICE" command.
+ *
+ * Reports the true disc size via the LBA capacity words (60/61, 100-103)
+ * and the ATA version / command-set words RISC OS 5 ADFS checks before it
+ * will use a drive in LBA mode. The legacy CHS cylinder word (buffer[1])
+ * is left at the translation maximum here; the real cylinder count for
+ * CHS-reading systems (RISC OS 3.7/4) is supplied separately.
  */
 static void
-ide_identify(void)
+ide_identify(int drive)
 {
+	uint32_t sectors;
+	const int spt = ide.spt[drive];
+	const int hpc = ide.hpc[drive];
+
 	memset(ide.buffer, 0, 512);
 
-	//ide.buffer[1] = 101; /* Cylinders */
+	sectors = (uint32_t) ide_hd_logical_sectors(drive);
+	if (sectors > 0x0FFFFFFFU) {
+		sectors = 0x0FFFFFFFU;
+	}
+
+	/* Word 0: fixed ATA device */
+	ide.buffer[0] = 0x0040;
+	/* Legacy CHS translation geometry */
 	ide.buffer[1] = 65535; /* Cylinders */
-	ide.buffer[3] = 16;  /* Heads */
-	ide.buffer[6] = 63;  /* Sectors */
+	ide.buffer[3] = hpc;   /* Heads */
+	ide.buffer[6] = spt;   /* Sectors per track */
 	ide_padstr((char *) (ide.buffer + 10), "", 20); /* Serial Number */
 	ide_padstr((char *) (ide.buffer + 23), "v1.0", 8); /* Firmware */
 	ide_padstr((char *) (ide.buffer + 27), "RPCEmuHD", 40); /* Model */
-//	ide.buffer[49] = 0x200; /* LBA supported */
-	ide.buffer[50] = 0x4000; /* Capabilities */
+	/* Capabilities: LBA supported (bit 9) */
+	ide.buffer[49] = 0x2f00;
+	ide.buffer[50] = 0x4000; /* Capabilities (bit 14 set per ATA spec) */
+	/* Validity bits for words 54-70 and 88 */
+	ide.buffer[53] = 0x0007;
+	ide.buffer[54] = hpc;
+	ide.buffer[55] = 0; /* Current cylinders - translation */
+	ide.buffer[56] = spt;
+	ide.buffer[57] = (uint16_t) (sectors & 0xFFFF);
+	ide.buffer[58] = (uint16_t) ((sectors >> 16) & 0xFFFF);
+	/* Current and total addressable sectors in LBA mode (28-bit) */
+	ide.buffer[60] = (uint16_t) (sectors & 0xFFFF);
+	ide.buffer[61] = (uint16_t) ((sectors >> 16) & 0xFFFF);
+	/* ATA version and command-set support (expected by RISC OS 5 ADFS) */
+	ide.buffer[80] = 0x007E;
+	ide.buffer[81] = 0x0026;
+	ide.buffer[83] = 0x7400;
+	ide.buffer[84] = 0x7400;
+	ide.buffer[85] = 0x7400;
+	ide.buffer[86] = 0x7400;
+	ide.buffer[88] = 0x0020;
+	/* 48-bit capacity (low 32 bits; sufficient for images under 128 GiB) */
+	ide.buffer[100] = (uint16_t) (sectors & 0xFFFF);
+	ide.buffer[101] = (uint16_t) ((sectors >> 16) & 0xFFFF);
+	ide.buffer[102] = 0;
+	ide.buffer[103] = 0;
 }
 
 /**
@@ -813,7 +868,7 @@ void callbackide(void)
                         return;
                 }
                 ide.pos=0;
-                ide.atastat = DRQ_STAT;
+                ide.atastat = DRQ_READY_STAT;
                 ide_irq_raise();
                 return;
 
@@ -834,7 +889,7 @@ void callbackide(void)
                 ide_irq_raise();
                 ide.secount--;
                 if (ide.secount != 0) {
-                        ide.atastat = DRQ_STAT;
+                        ide.atastat = DRQ_READY_STAT;
                         ide.pos=0;
                         ide_next_sector();
                 } else {
@@ -906,9 +961,9 @@ void callbackide(void)
                         ide.drive=ide.head=0;
                         goto abort_cmd;
                 }
-                ide_identify();
+                ide_identify(ide.drive);
                 ide.pos=0;
-                ide.atastat = DRQ_STAT;
+                ide.atastat = DRQ_READY_STAT;
                 ide_irq_raise();
                 return;
 
