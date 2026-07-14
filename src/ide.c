@@ -45,6 +45,7 @@ void callbackide(void);
 #define DRQ_STAT		0x08 /* Data request */
 #define READY_STAT		0x40
 #define BUSY_STAT		0x80
+#define DRQ_READY_STAT		(DRQ_STAT | READY_STAT)
 
 /* Bits of 'error' */
 #define ABRT_ERR		0x04 /* Command aborted */
@@ -122,7 +123,8 @@ static struct
         unsigned char fdisk;
         int pos;
         int packlen;
-        int spt[2], hpc[2];
+        int spt[2], hpc[2], cylinders[2];
+        int id_spt[2], id_hpc[2]; /* native geometry for IDENTIFY (WIN_SPECIFY mutates spt/hpc) */
         int packetstatus;
         int cdpos,cdlen;
         unsigned char asc;
@@ -168,6 +170,19 @@ ide_media_error_idnf(void)
 	ide.atastat = READY_STAT | ERR_STAT;
 	ide.error = IDNF_ERR;
 	ide_irq_raise();
+}
+
+/**
+ * Number of addressable 512-byte logical sectors on a drive's image,
+ * excluding any 512-byte boot-block skipped at the start (skip512).
+ */
+static off64_t
+ide_hd_logical_sectors(int drive)
+{
+	if (!ide_drive_is_hdd(drive)) {
+		return 0;
+	}
+	return (ide.hd_filesize[drive] / 512) - ide.skip512[drive];
 }
 
 /**
@@ -218,22 +233,56 @@ ide_padstr8(uint8_t *buf, int buf_size, const char *src)
 }
 
 /**
- * Fill in ide.buffer with the output of the "IDENTIFY DEVICE" command
+ * Fill in ide.buffer with the output of the "IDENTIFY DEVICE" command.
+ *
+ * Models an authentic RiscPC-era (~ATA-3) drive: the real CHS geometry
+ * (native, from the image) plus 28-bit LBA capacity (words 60/61). The
+ * 48-bit LBA (ATA-6) feature bit is deliberately left clear -- the RiscPC
+ * IDE interface cannot do LBA48, and advertising it makes Partition
+ * Manager issue LBA48 disc ops that RISC OS 3.71 ADFS cannot fulfil.
  */
 static void
-ide_identify(void)
+ide_identify(int drive)
 {
+	uint32_t sectors;
+	uint32_t chs_sectors;
+	const int spt = ide.id_spt[drive];   /* native geometry, not the */
+	const int hpc = ide.id_hpc[drive];   /* WIN_SPECIFY-mutated live values */
+	const int cyl = ide.cylinders[drive];
+
 	memset(ide.buffer, 0, 512);
 
-	//ide.buffer[1] = 101; /* Cylinders */
-	ide.buffer[1] = 65535; /* Cylinders */
-	ide.buffer[3] = 16;  /* Heads */
-	ide.buffer[6] = 63;  /* Sectors */
+	chs_sectors = (uint32_t) cyl * (uint32_t) hpc * (uint32_t) spt;
+
+	sectors = (uint32_t) ide_hd_logical_sectors(drive);
+	if (sectors > 0x0FFFFFFFU) {
+		sectors = 0x0FFFFFFFU; /* 28-bit LBA maximum */
+	}
+
+	/* Model an authentic RiscPC-era (~ATA-3) IDE drive: real CHS geometry
+	   plus 28-bit LBA. We deliberately do NOT advertise the 48-bit LBA
+	   (ATA-6) feature set -- the RiscPC IDE interface is pre-ATA-1 and cannot
+	   do LBA48, and Partition Manager keys off word 83 bit 10 to pick LBA48
+	   disc ops that RISC OS 3.71's ADFS then cannot fulfil (format fails). */
+	ide.buffer[1] = (uint16_t) cyl;  /* Cylinders (real count from image size) */
+	ide.buffer[3] = (uint16_t) hpc;  /* Heads */
+	ide.buffer[6] = (uint16_t) spt;  /* Sectors per track */
 	ide_padstr((char *) (ide.buffer + 10), "", 20); /* Serial Number */
 	ide_padstr((char *) (ide.buffer + 23), "v1.0", 8); /* Firmware */
 	ide_padstr((char *) (ide.buffer + 27), "RPCEmuHD", 40); /* Model */
-//	ide.buffer[49] = 0x200; /* LBA supported */
-	ide.buffer[50] = 0x4000; /* Capabilities */
+	ide.buffer[49] = 0x0200; /* Capabilities: LBA supported (bit 9) */
+	ide.buffer[50] = 0x4000; /* Capabilities (bit 14 set per ATA spec) */
+	/* Current logical geometry valid (word 53 bit 0); words 54-58 */
+	ide.buffer[53] = 0x0001;
+	ide.buffer[54] = (uint16_t) cyl; /* Current logical cylinders */
+	ide.buffer[55] = (uint16_t) hpc; /* Current logical heads */
+	ide.buffer[56] = (uint16_t) spt; /* Current logical sectors per track */
+	ide.buffer[57] = (uint16_t) (chs_sectors & 0xFFFF);        /* Current capacity */
+	ide.buffer[58] = (uint16_t) ((chs_sectors >> 16) & 0xFFFF);
+	/* Total addressable sectors in 28-bit LBA mode (words 60/61) */
+	ide.buffer[60] = (uint16_t) (sectors & 0xFFFF);
+	ide.buffer[61] = (uint16_t) ((sectors >> 16) & 0xFFFF);
+	/* NOTE: word 83 (48-bit LBA feature) is intentionally left 0. */
 }
 
 /**
@@ -464,6 +513,22 @@ loadhd(int d, const char *filename)
 
 	ide.hd_filesize[d] = filesize;
 	ide_image_set_spt_hpc_skip512(ide.hdfile[d], d);
+
+	/* Preserve the native geometry for IDENTIFY. A guest's WIN_SPECIFY
+	   (Initialize Drive Parameters) overwrites spt/hpc with the logical
+	   geometry it wants for addressing (RISC OS ADFS specifies 1 head), so
+	   reporting the live values in IDENTIFY would advertise a nonsensical
+	   geometry. IDENTIFY must always report the drive's native geometry. */
+	ide.id_spt[d] = ide.spt[d];
+	ide.id_hpc[d] = ide.hpc[d];
+
+	/* Report the true disc size: cylinders from the image, capped at 65535. */
+	{
+		const off64_t cyls = filesize / ((off64_t) 16 * 63 * 512);
+		ide.cylinders[d] = (cyls > 65535) ? 65535 : (int) cyls;
+		rpclog("IDE: drive %d: reporting %d cylinders (16h/63s) from image size\n",
+			d, ide.cylinders[d]);
+	}
 
 	rpclog("IDE: Loaded file '%s' as IDE disc %d, size %" PRId64 " MB (%" PRId64 ")%s\n",
 		filename,
@@ -813,7 +878,7 @@ void callbackide(void)
                         return;
                 }
                 ide.pos=0;
-                ide.atastat = DRQ_STAT;
+                ide.atastat = DRQ_READY_STAT;
                 ide_irq_raise();
                 return;
 
@@ -834,7 +899,7 @@ void callbackide(void)
                 ide_irq_raise();
                 ide.secount--;
                 if (ide.secount != 0) {
-                        ide.atastat = DRQ_STAT;
+                        ide.atastat = DRQ_READY_STAT;
                         ide.pos=0;
                         ide_next_sector();
                 } else {
@@ -906,9 +971,9 @@ void callbackide(void)
                         ide.drive=ide.head=0;
                         goto abort_cmd;
                 }
-                ide_identify();
+                ide_identify(ide.drive);
                 ide.pos=0;
-                ide.atastat = DRQ_STAT;
+                ide.atastat = DRQ_READY_STAT;
                 ide_irq_raise();
                 return;
 
