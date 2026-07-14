@@ -49,6 +49,7 @@ void callbackide(void);
 /* Bits of 'error' */
 #define ABRT_ERR		0x04 /* Command aborted */
 #define MCR_ERR			0x08 /* Media change request */
+#define IDNF_ERR		0x10 /* ID not found / invalid sector */
 
 /* ATA Commands */
 #define WIN_SRST			0x08 /* ATAPI Device Reset */
@@ -128,6 +129,7 @@ static struct
         int discchanged;
         int reset;
         FILE *hdfile[2];
+        off64_t hd_filesize[2];
         int skip512[2];
         int lba_cmd[2];
         uint16_t buffer[65536];
@@ -145,6 +147,27 @@ ide_irq_lower(void)
 {
 	iomd.irqb.status &= ~IOMD_IRQB_IDE;
 	updateirqs();
+}
+
+/**
+ * Is the given drive an attached hard-disc image (as opposed to absent,
+ * or the ATAPI CD-ROM on drive 1)?
+ */
+static inline int
+ide_drive_is_hdd(int drive)
+{
+	return ide.hdfile[drive] != NULL && !(config.cdromenabled && drive == 1);
+}
+
+/**
+ * Report an "ID not found" media error to the guest for an invalid sector.
+ */
+static void
+ide_media_error_idnf(void)
+{
+	ide.atastat = READY_STAT | ERR_STAT;
+	ide.error = IDNF_ERR;
+	ide_irq_raise();
 }
 
 /**
@@ -317,6 +340,20 @@ ide_get_sector(void)
 }
 
 /**
+ * Is a 512-byte sector wholly within the current drive's image file?
+ * Used to reject out-of-bounds accesses with an IDNF error rather than
+ * silently zero-filling reads or extending the file on writes.
+ */
+static int
+ide_sector_byte_offset_valid(off64_t byte_offset)
+{
+	if (!ide_drive_is_hdd(ide.drive)) {
+		return 0;
+	}
+	return byte_offset >= 0 && byte_offset + 512 <= ide.hd_filesize[ide.drive];
+}
+
+/**
  * Advance the register values to the next sector, in whichever addressing
  * mode the guest selected (again independent of skip512).
  */
@@ -425,6 +462,7 @@ loadhd(int d, const char *filename)
 	fseeko64(ide.hdfile[d], 0, SEEK_END);
 	const off64_t filesize = ftello64(ide.hdfile[d]);
 
+	ide.hd_filesize[d] = filesize;
 	ide_image_set_spt_hpc_skip512(ide.hdfile[d], d);
 
 	rpclog("IDE: Loaded file '%s' as IDE disc %d, size %" PRId64 " MB (%" PRId64 ")%s\n",
@@ -445,6 +483,7 @@ void resetide(void)
                         fclose(ide.hdfile[d]);
                         ide.hdfile[d] = NULL;
                 }
+                ide.hd_filesize[d] = 0;
         }
 
         ide.atastat = READY_STAT;
@@ -764,10 +803,14 @@ void callbackide(void)
                         goto abort_cmd;
                 }
                 addr = ide_get_sector() * 512;
+                if (!ide_sector_byte_offset_valid(addr)) {
+                        ide_media_error_idnf();
+                        return;
+                }
                 fseeko64(ide.hdfile[ide.drive], addr, SEEK_SET);
                 if (fread(ide.buffer, 1, 512, ide.hdfile[ide.drive]) != 512) {
-                        // Beyond current extent of file - return zero data
-                        memset(ide.buffer, 0, 512);
+                        ide_media_error_idnf();
+                        return;
                 }
                 ide.pos=0;
                 ide.atastat = DRQ_STAT;
@@ -779,8 +822,15 @@ void callbackide(void)
                         goto abort_cmd;
                 }
                 addr = ide_get_sector() * 512;
+                if (!ide_sector_byte_offset_valid(addr)) {
+                        ide_media_error_idnf();
+                        return;
+                }
                 fseeko64(ide.hdfile[ide.drive], addr, SEEK_SET);
-                fwrite(ide.buffer, 512, 1, ide.hdfile[ide.drive]);
+                if (fwrite(ide.buffer, 512, 1, ide.hdfile[ide.drive]) != 1) {
+                        rpclog("IDE: sector write failed at offset %llu: %s\n",
+                               (unsigned long long) addr, strerror(errno));
+                }
                 ide_irq_raise();
                 ide.secount--;
                 if (ide.secount != 0) {
@@ -806,11 +856,19 @@ void callbackide(void)
                         goto abort_cmd;
                 }
                 addr = ide_get_sector() * 512;
+                if (!ide_sector_byte_offset_valid(addr)) {
+                        ide_media_error_idnf();
+                        return;
+                }
                 fseeko64(ide.hdfile[ide.drive], addr, SEEK_SET);
                 memset(ide.buffer, 0, 512);
                 for (c=0;c<ide.secount;c++)
                 {
-                        fwrite(ide.buffer, 512, 1, ide.hdfile[ide.drive]);
+                        if (fwrite(ide.buffer, 512, 1, ide.hdfile[ide.drive]) != 1) {
+                                rpclog("IDE: format write failed: %s\n",
+                                       strerror(errno));
+                                break;
+                        }
                 }
                 ide.atastat = READY_STAT;
                 ide_irq_raise();
