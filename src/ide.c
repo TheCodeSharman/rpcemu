@@ -53,6 +53,7 @@ void callbackide(void);
 #define IDNF_ERR		0x10 /* ID not found / invalid sector */
 
 /* ATA Commands */
+#define WIN_NOP				0x00 /* No-operation; ATA defines it to always abort */
 #define WIN_SRST			0x08 /* ATAPI Device Reset */
 #define WIN_RECAL			0x10
 #define WIN_RESTORE			WIN_RECAL
@@ -667,6 +668,15 @@ void writeide(uint16_t addr, uint8_t val)
                 ide.error=0;
                 switch (val)
                 {
+                case WIN_NOP:
+                        /* ATA defines the NOP command (0x00) to always abort.
+                           Handle it quietly like real hardware -- it is a valid
+                           command, so no "unimplemented" warning is logged. */
+                        ide.atastat = READY_STAT | ERR_STAT;
+                        ide.error = ABRT_ERR;
+                        ide_irq_raise();
+                        return;
+
                 case WIN_SRST: /* ATAPI Device Reset */
                         ide.atastat = READY_STAT;
                         idecallback=100;
@@ -722,7 +732,16 @@ void writeide(uint16_t addr, uint8_t val)
                         ide.pos=0;
                         return;
                 }
-                fatal("Bad IDE command %02X\n", val);
+                /* Unimplemented command. Real IDE hardware aborts it (ERR set,
+                   ABRT in the error register) rather than wedging. Never fatal()
+                   here: a guest filing system must not be able to kill the whole
+                   emulator -- e.g. Partition Manager, misled by a bogus LBA48
+                   IDENTIFY, built a 48-bit-layout ADFS_IDEUserOp block that RISC
+                   OS 3.71's ADFS mis-parsed into a spurious command 0. */
+                rpclog("IDE: unimplemented command %02X, returning ABRT\n", val);
+                ide.atastat = READY_STAT | ERR_STAT;
+                ide.error = ABRT_ERR;
+                ide_irq_raise();
                 return;
 
         case 0x3F6: /* Device control */
