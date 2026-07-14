@@ -28,6 +28,10 @@
 # Usage:   tools/setup-install.sh [NAME]          (or: make setup-install)
 # Example: NAME=riscos-370 tools/setup-install.sh
 #          NAME=riscos-530 MODEL=RPCSA MEM=256 ROM=".../RiscOS_5.30.rom" tools/setup-install.sh
+#          # multi-boot (3-way ROM swap on one shared disc) — generates ./swap-rom:
+#          NAME=riscos-multi \
+#            EXTRA_ROMS="ROM402=.../RiscOS_4.02.rom ROM530=.../RiscOS_5.30_IOMD.rom" \
+#            tools/setup-install.sh
 # Needs:   the sibling RiscPc repo (for build.py + roms/) and its downloads
 #          already fetched (build.py sha256-verifies them); nix for build deps.
 #
@@ -45,6 +49,11 @@ NAME="${1:-${NAME:-riscos-370}}"
 # ROM: any ROM file. Default is the 3.70 dump from a sibling RiscPc checkout.
 ROM="${ROM:-$RISCPC_REPO/roms/4. Local Dump/RiscOS_3.70.rom}"
 ROM_LABEL="${ROM_LABEL:-ROM370}"                         # name for the roms/ entry
+# EXTRA_ROMS: space-separated LABEL=path entries for a multi-boot install. Each
+# is symlinked into roms/ as an INACTIVE ".LABEL" (RPCEmu ignores dotted files);
+# the generated swap-rom script activates one at a time. e.g.
+#   EXTRA_ROMS="ROM402=/path/RiscOS_4.02.rom ROM530=/path/RiscOS_5.30_IOMD.rom"
+EXTRA_ROMS="${EXTRA_ROMS:-}"
 MODEL="${MODEL:-RPC710}"                                 # RPCEmu machine model
 MEM="${MEM:-32}"                                         # RAM (MiB)
 VRAM="${VRAM:-2}"                                        # VRAM (MiB)
@@ -106,6 +115,75 @@ start with a "." or have the extension "txt" will be joined together in
 alphabetical order to make up the ROM that RPCEmu uses.  The total
 length of the ROM files must be 2, 4, 6, or 8MiB long.
 ROMS
+
+# Extra ROMs for a multi-boot install: symlinked INACTIVE (dotted) alongside the
+# active primary; swap-rom (below) toggles which one RPCEmu loads.
+if [ -n "$EXTRA_ROMS" ]; then
+	for entry in $EXTRA_ROMS; do
+		label="${entry%%=*}"; path="${entry#*=}"
+		[ -f "$path" ] || { echo "error: EXTRA_ROMS file not found: $path" >&2; exit 1; }
+		ln -s "$path" "$INSTALL/roms/.$label"
+		echo ">> extra rom:  $path  (as roms/.$label, inactive)"
+	done
+
+	# swap-rom: switch the active ROM on this shared-disc multi-boot install.
+	cat > "$INSTALL/swap-rom" <<'SWAP'
+#!/usr/bin/env bash
+# Switch the active RISC OS ROM on this shared-disc multi-boot install.
+#
+#   swap-rom            cycle to the next ROM (3.70 -> 4.02 -> 5.30 -> 3.70)
+#   swap-rom 5.30       switch directly to a ROM (accepts 5.30, 530, or 5)
+#   swap-rom -l         list available ROMs, marking the active one
+#
+# ROMs live in ./roms as ROMxxx (active) or .ROMxxx (inactive); RPCEmu loads
+# only the single non-dotted one.
+set -euo pipefail
+R="$(cd "$(dirname "$0")" && pwd)/roms"
+
+# Discover all ROMxxx (dotted or not) as bare codes, e.g. 370 402 530
+mapfile -t codes < <(cd "$R" && ls -1 .ROM??? ROM??? 2>/dev/null | sed 's/^\.//; s/^ROM//' | sort -u)
+[ "${#codes[@]}" -gt 0 ] || { echo "error: no ROMxxx files in $R" >&2; exit 1; }
+
+# Current active = the one without a leading dot
+cur=""; for c in "${codes[@]}"; do [ -e "$R/ROM$c" ] && cur="$c"; done
+
+if [ "${1:-}" = "-l" ] || [ "${1:-}" = "--list" ]; then
+	for c in "${codes[@]}"; do
+		[ "$c" = "$cur" ] && echo "* $c (active)" || echo "  $c"
+	done
+	exit 0
+fi
+
+if [ $# -ge 1 ]; then
+	# Requested version: drop dots, then match a ROM code exactly or by prefix
+	# so "5.30", "530" and "5" all select ROM530.
+	want="${1//./}"
+	target=""
+	for c in "${codes[@]}"; do [ "$c" = "$want" ] && target="$c"; done
+	if [ -z "$target" ]; then
+		for c in "${codes[@]}"; do [[ "$c" == "$want"* ]] && target="$c"; done
+	fi
+	[ -n "$target" ] || { echo "error: no ROM matches '$1' (have: ${codes[*]})" >&2; exit 1; }
+else
+	# No arg: cycle to the next ROM in discovered order
+	target="${codes[0]}"
+	for i in "${!codes[@]}"; do
+		[ "${codes[$i]}" = "$cur" ] && target="${codes[$(( (i + 1) % ${#codes[@]} ))]}" && break
+	done
+fi
+
+if [ "$target" = "$cur" ]; then
+	echo ">> active ROM already: $target"
+	exit 0
+fi
+
+[ -n "$cur" ] && mv "$R/ROM$cur" "$R/.ROM$cur"
+mv "$R/.ROM$target" "$R/ROM$target"
+echo ">> active ROM is now: $target"
+SWAP
+	chmod +x "$INSTALL/swap-rom"
+	echo ">> wrote swap-rom (multi-boot ROM switcher)"
+fi
 
 # HostFS filing system + icon-bar filer (+ clock) as an extension podule ROM.
 # Without this RISC OS never presents the HostFS drive.
