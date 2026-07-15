@@ -139,6 +139,8 @@ typedef struct {
 	int cpu_idle;		/**< Attempt to reduce CPU usage */
 	int show_fullscreen_message;	/**< Show explanation of how to leave fullscreen, on entering fullscreen */
 	char *network_capture;		///< Path to capture network traffic file, or NULL to disable
+	int hostcmd_enabled;		///< Enable the HostCmd host<->guest command socket
+	char hostcmd_socket[512];	///< HostCmd socket: empty => <datadir>/hostcmd.sock; a path => AF_UNIX; a bare port => TCP 127.0.0.1
 } Config;
 
 extern Config config;
