@@ -1,0 +1,18 @@
+{
+  "//": "Copy to .mcp.json in your project and edit the paths for your machine.",
+  "//data-dir": "Under a portable build, the data dir is the release folder; under an installed build it is ~/RPCEmu.",
+  "//script-path": "From a source/release tree use tools/mcp/rpcemu_mcp.py; from a .deb install use /usr/share/rpcemu/mcp/rpcemu_mcp.py.",
+  "mcpServers": {
+    "rpcemu": {
+      "command": "python3",
+      "args": ["tools/mcp/rpcemu_mcp.py"],
+      "env": {
+        "RPCEMU_HOSTCMD_SOCKET": "/ABSOLUTE/PATH/TO/DATA-DIR/hostcmd.sock",
+        "RPCEMU_HOSTFS_DIR": "/ABSOLUTE/PATH/TO/DATA-DIR/machines/Default/hostfs",
+        "RPCEMU_VNC_HOST": "127.0.0.1",
+        "RPCEMU_VNC_PORT": "5900",
+        "RPCEMU_DEBUG_SOCKET": "/ABSOLUTE/PATH/TO/DATA-DIR/rpcemu-debug.sock"
+      }
+    }
+  }
+}
