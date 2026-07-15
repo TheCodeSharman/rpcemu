@@ -1,0 +1,169 @@
+{
+  "_comment": "Pinned official sources for the universal !Boot build. sha256 makes the build reproducible even though some URLs serve 'latest'. Re-pin (and re-verify the merge log) when bumping a version.",
+  "sources": [
+    {
+      "name": "HardDisc4",
+      "file": "HardDisc4.zip",
+      "url": "https://www.riscosopen.org/zipfiles/platform/common/HardDisc4.zip",
+      "sha256": "54930a3c86188ed46fd9ef7f44ede198a31ba5335dcd027f4f085c854d1e8376",
+      "strip": "HardDisc4/",
+      "role": "disc-root: !Boot (all ROxxxHook incl. RO370Hook), Apps, Utilities. Bundles its own RO5-era !System at !Boot.Resources.!System."
+    },
+    {
+      "name": "PlingSystem",
+      "file": "PlingSystem.zip",
+      "url": "https://www.riscosopen.org/zipfiles/platform/common/PlingSystem.zip",
+      "sha256": "994ca936834cca036d4de39bf433c6dd8e3ee201a67033889c83cf84fa6cc7eb",
+      "strip": "",
+      "role": "System resources: disc-based module sets 310/350/360/370/400. Merged into HardDisc4's !System, newest-version-wins."
+    },
+    {
+      "name": "PartMgr",
+      "file": "PartMgr_1.05-1.zip",
+      "url": "http://www.jaspp.org.uk/packages/release-packages/PartMgr_1.05-1",
+      "sha256": "15da202bdede3a79d0cc03d88b59af65ceaaae7c01ea3da423b9f70485e70e70",
+      "strip": "",
+      "role": "Partition Manager 1.05-1 (JASPP repo). Disc partitioning/format tool."
+    },
+    {
+      "name": "StrongED",
+      "file": "StrongED_469f14.zip",
+      "url": "http://www.stronged.iconbar.com/archives/releases/se469f14.zip",
+      "sha256": "4738eed9a7d91cbdfbc196c7673ed0c69bc88df4314bc10ce35052b50f8a736c",
+      "strip": "",
+      "role": "StrongED 4.69f14 text editor (Fred Graute; 26/32-bit, runs on RISC OS 3.7). Not in ROOL packaging."
+    },
+    {
+      "name": "Zap",
+      "file": "Zap_1.47_everything32.zip",
+      "url": "http://zap.tartarus.org/downloads/1.47/latest/everything32.zip",
+      "sha256": "df2ab850366511e9515a9ffe297f41276f48faf78e193a8d6a899479450f4825",
+      "strip": "",
+      "role": "Zap 1.47 'everything32' -- the full editor in one archive: !Zap CORE with all 37 extension Modules bundled in (incl. !ZapBASIC, which claims the task-window server), plus !ZapFonts and !ZapUser. Ships ObeySpt (2002) + ZapRedraw 0.48 (2005), so it is 26/32-bit-neutral -- runs on 26-bit RISC OS 3.7/4.02 AND 32-bit RO5 (same build RO Direct uses). Replaces the old split 1.45 zap.zip + allmods.zip: with Modules bundled there is no separate ZapExt source/placement. Not in ROOL packaging."
+    },
+    {
+      "name": "MakeModes",
+      "file": "BonusBinDev.zip",
+      "url": "https://www.riscosopen.org/zipfiles/platform/common/BonusBinDev.zip",
+      "sha256": "20d4f21c00a425c58bbf4c71a4ed6b674d1d70cc7262cc32b7b68b26ea642554",
+      "strip": "HardDisc4/",
+      "role": "ROOL 'Bonus binaries' (maintained). Curated placement: !MakeModes (monitor definition files) from Utilities/Developer. ROOL-maintained preferred over the dead Acorn 0.26."
+    },
+    {
+      "name": "AcornApps",
+      "file": "acorn37-apps.zip",
+      "url": "https://www.4corn.co.uk/archive//acornftp/riscos3/37/37DiscArchive/apps.zip",
+      "sha256": "941a58c976fae52ef24752f8216f962601c1cbf41aa7001a13b29cf2caf1e3be",
+      "strip": "",
+      "role": "Acorn RISC OS 3.7 disc Apps (4corn Acorn-FTP archive, dead source). Curated placement: !ARPlayer only (the rest are already in HardDisc4)."
+    },
+    {
+      "name": "AcornUtils",
+      "file": "acorn37-utilities.zip",
+      "url": "https://www.4corn.co.uk/archive//acornftp/riscos3/37/37DiscArchive/utilities.zip",
+      "sha256": "aab46ee6662b64d9730e64ed8081b11d3c9a8f2b31614723acbb15eb3acf4ec1",
+      "strip": "",
+      "role": "Acorn 3.7 Utilities (dead source). Curated placements: !SaveCMOS, !Verify, !PhotoView (skipped !CDPlayer/Access+/Patches; !HForm+!ResetBoot already in HardDisc4's Utilities.Caution -- ROOL wins)."
+    },
+    {
+      "name": "AcornDiversions",
+      "file": "acorn37-diversions.zip",
+      "url": "https://www.4corn.co.uk/archive//acornftp/riscos3/37/37DiscArchive/diversions.zip",
+      "sha256": "9d99b046f00e0964653cd966db25d707b6e356f9b707977819211a091d1eb783",
+      "strip": "",
+      "role": "Acorn 3.7 Diversions (games). content_merge: added where HardDisc4 lacks them (HardDisc4 always newer -> wins overlaps)."
+    },
+    {
+      "name": "AcornSound",
+      "file": "acorn37-sound.zip",
+      "url": "https://www.4corn.co.uk/archive//acornftp/riscos3/37/37DiscArchive/sound.zip",
+      "sha256": "fff3232af1f5552714cf97491604ec4d783ebd46b321c5c17345a17973719d08",
+      "strip": "",
+      "role": "Acorn 3.7 Sound samples ($.Sound). content_merge."
+    },
+    {
+      "name": "AcornReplay",
+      "file": "acorn37-replay.zip",
+      "url": "https://www.4corn.co.uk/archive//acornftp/riscos3/37/37DiscArchive/replay.zip",
+      "sha256": "c361310f7f08cf44f4bb220eec2b04fda76a4bb5284325229128bdb51c22861f",
+      "strip": "",
+      "role": "Acorn 3.7 Replay tools ($.Replay: !AREncode/!ARWork). content_merge."
+    },
+    {
+      "name": "AcornARMovie",
+      "file": "acorn37-ARMovie.zip",
+      "url": "https://www.4corn.co.uk/archive//acornftp/riscos3/37/37DiscArchive/ARMovie.zip",
+      "sha256": "0433e8139fadc7f5330e8028efafe92715ffe911d34333b2c87ca189debb0de5",
+      "strip": "",
+      "role": "Acorn 3.7 ARMovie/Replay playback support (!Boot.Resources.!ARMovie etc.), needed by !ARPlayer. content_merge (add-missing, ROOL keeps its own)."
+    },
+    {
+      "name": "AcornManuals",
+      "file": "acorn37-manuals.zip",
+      "url": "https://www.4corn.co.uk/archive//acornftp/riscos3/37/37DiscArchive/manuals.zip",
+      "sha256": "2d207dc148fea748ee047d6ed75f3ad33cc2449053e9cfea6e9a0d29c53ce91a",
+      "strip": "",
+      "role": "Acorn 3.7 Manuals + !Bookworm reader ($.Manuals). content_merge."
+    },
+    {
+      "name": "NetSurf",
+      "file": "netsurf-3.11.zip",
+      "url": "https://download.netsurf-browser.org/netsurf/releases/pre-built/riscos/netsurf-3.11.zip",
+      "sha256": "6045f46c363f478a3579c17d89dc7e25e5c56ecb6dbadb659fc508c7871cd50f",
+      "strip": "",
+      "role": "NetSurf 3.11 -- a real CSS-capable browser that runs on RISC OS 3.7 (its !Run needs only 'RISC OS 3+' and uses CallASWI, so it's the single 26/32-neutral build for all RISC OS; the website's '4.02+' is mislabelled). Verified working on RO 3.7 (32 MB). Becomes the primary browser. !NetSurf -> Apps; its bundled !System (Iconv/Tinct/CryptRand/ARMEABISupport/URI/SharedULib) + !Boot (!Cache/!Unicode) deps are merged add-missing (ROOL keeps overlaps -- newer than NetSurf's minimums)."
+    },
+    {
+      "name": "PlingStore",
+      "file": "pszip.zip",
+      "url": "http://www.plingstore.org.uk/download/pszip.zip",
+      "sha256": "1ae859862b96a9b7747d3a7441bdc5202bb662d1f548b4906a292590553b2697",
+      "strip": "",
+      "role": "PlingStore (!Store) from its official site -- the RISC OS Developments app/software store (browse + buy commercial apps like Heretic). Fresh core (~250 KB) rather than the lived-in 5.9 MB copy in RpcemuBundle. !Store -> Apps."
+    },
+    {
+      "name": "RO439Boot",
+      "file": "439boot.zip",
+      "url": "http://www.riscos.com/ftp_space/439/files/439boot.zip",
+      "sha256": "b7178476e25a7ec5b901adef1a1a902e40d123dda4b26e824861b56bc28a02fc",
+      "strip": "",
+      "role": "RISC OS 4.39 (Adjust) recovery !Boot from 3QD Developments / RISCOS-Ltd (riscos.com FTP). PROPRIETARY, personal-use licence -- the zip is downloaded (git-ignored) and unpacked, NEVER committed; only this recipe is. A plain Acorn zip (roextract reads it natively, unlike 4.02's XFIL0 ro4install.zip which needs !RO4INSTAL run in RISC OS). Used as the source of the GENUINE RISCOS-Ltd Configure that ROOL's HardDisc4 stubs out for RISC OS 4: build.py (patch_ro400_configure) lifts its RO400Hook.Res.{!Configure,Configure} into our RO400Hook.Res. Also carries RO420Hook/RO430Hook + !System/420, i.e. everything needed to add full Adjust support later."
+    }
+  ],
+  "_placements_comment": "After HardDisc4 is laid down and !System merged, copy each app subtree from an extracted source (or from this repo) onto the disc. Paths are relative to each extracted source's root (post-strip). RaFS comes from this repo, already ,xxx-typed. The user-visible editors (!StrongED, !Zap) go in $.Apps; their satellite resource/config dirs go where each app's own !Run looks them up: !ZapFonts -> BootResources (!Boot.Resources), !ZapUser + !StrED_cfg -> Choices$Write (!Boot.Choices). See each app's Install doc / StartUp.SetupCfg.",
+  "placements": [
+    { "repo": "tools/riscos-boot-build/vendor/PackMan/!PackMan",  "to": "Apps/!PackMan" },
+    { "source": "PartMgr",  "path": "Apps/Utilities/!PartMgr",  "to": "Utilities/Caution/!PartMgr" },
+    { "source": "StrongED", "path": "!StrongED",                "to": "Apps/!StrongED" },
+    { "source": "StrongED", "path": "!StrED_cfg",               "to": "!Boot/Choices/!StrED_cfg" },
+    { "source": "Zap",      "path": "!Zap",                     "to": "Apps/!Zap" },
+    { "source": "Zap",      "path": "!ZapFonts",                "to": "!Boot/Resources/!ZapFonts" },
+    { "source": "Zap",      "path": "!ZapUser",                 "to": "!Boot/Choices/!ZapUser" },
+    { "repo": "rafs/rafs116/!raFS",                             "to": "Utilities/!RaFS",           "packages_in_rafs": true,  "_note": "RaFS mode only: RaFS gives !Packages long names on a real 10-char (E-format) FileCore" },
+    { "repo": "tools/riscos-boot-build/vendor/PkgDisc/Pkg",     "to": "!Boot/Resources/Pkg",       "packages_in_rafs": true,  "_note": "RaFS mode only: the RaFS-wrapped !Packages the PackMan !Run hook mounts on launch" },
+    { "repo": "tools/riscos-boot-build/vendor/PackMan/!PackMan/Resources/!Packages", "to": "!Boot/Resources/!Packages", "packages_in_rafs": false, "_note": "plain mode (default): plain !Packages the boot Filer_Boots -- native long names (HostFS, or F-format FileCore), no RaFS" },
+    { "repo": "tools/riscos-boot-build/vendor/URLFetch/Modules", "to": "!Boot/Resources/!System/310/Modules/Network/URL" },
+    { "source": "MakeModes",  "path": "Utilities/Developer/!MakeModes", "to": "Utilities/!MakeModes" },
+    { "source": "AcornApps",  "path": "Apps/!ARPlayer",     "to": "Apps/!ARPlayer" },
+    { "source": "AcornUtils", "path": "Utilities/!SaveCMOS", "to": "Utilities/!SaveCMOS" },
+    { "source": "AcornUtils", "path": "Utilities/!Verify",   "to": "Utilities/!Verify" },
+    { "source": "AcornUtils", "path": "Utilities/!PhotoView","to": "Utilities/!PhotoView" },
+    { "source": "NetSurf",      "path": "!NetSurf",                     "to": "Apps/!NetSurf" },
+    { "source": "PlingStore",   "path": "!Store",                       "to": "Apps/!Store" }
+  ],
+  "_subtree_comment": "The ONLY sanctioned merges: !System module sets and !Boot updates (never apps). Each named tree is merged add-missing (our more-authoritative HardDisc4/PlingSystem copy wins every overlap; only genuinely-missing modules/files are added). NetSurf ships its module deps this way; AcornARMovie is a !Boot.Resources update (!ARMovie playback support).",
+  "subtree_merges": [
+    { "source": "NetSurf",      "from": "!System",                   "to": "!Boot/Resources/!System" },
+    { "source": "NetSurf",      "from": "!Boot",                     "to": "!Boot" },
+    { "source": "AcornARMovie", "from": "!Boot",                     "to": "!Boot" }
+  ],
+  "_content_place_comment": "Non-!Boot/!System content (Acorn 3.7 games/sound/manuals). Each immediate child of the source's `container` dir is placed WHOLE onto the disc, but only where the authoritative disc (HardDisc4/ROOL) lacks that leafname. Whole apps only -- NEVER merged file-by-file (that spliced two !Flashers and duplicated !Help). ROOL keeps its whole app on every overlap; only Acorn-only extras are added.",
+  "content_place": [
+    { "source": "AcornDiversions", "container": "Diversions" },
+    { "source": "AcornSound",      "container": "Sound" },
+    { "source": "AcornReplay",     "container": "Replay" },
+    { "source": "AcornManuals",    "container": "Manuals" }
+  ],
+  "_exclude_comment": "Root files dropped from the assembled disc: non-essential docs, and their host '.' becomes a '/' in the RISC OS leaf name (harmless, but tidy to omit).",
+  "exclude_root": ["LICENSE", "ReadMe.txt"]
+}
