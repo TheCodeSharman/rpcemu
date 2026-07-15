@@ -50,6 +50,7 @@ private:
 	QRadioButton *net_nat;
 	QRadioButton *net_bridging;
 	QRadioButton *net_tunnelling;
+	QRadioButton *net_tunnelling_tap;
 
 	QLabel *bridge_label;
 	QLineEdit *bridge_name;
@@ -58,6 +59,10 @@ private:
 	QLabel *tunnelling_label;
 	QLineEdit *tunnelling_name;
 	QHBoxLayout *tunnelling_hbox;
+
+	QLabel *tunnelif_label;
+	QLineEdit *tunnelif_name;
+	QHBoxLayout *tunnelif_hbox;
 
 	QDialogButtonBox *buttons_box;
 

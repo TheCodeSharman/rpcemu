@@ -100,12 +100,29 @@ tun_alloc(void)
 	struct sockaddr_in *addr;
 	int fd;
 	int sd;
+	int preconfigured;
 
 	assert(config.network_type == NetworkType_EthernetBridging ||
-	       config.network_type == NetworkType_IPTunnelling);
+	       config.network_type == NetworkType_IPTunnelling ||
+	       config.network_type == NetworkType_IPTunnellingTap);
 
-	if (config.network_type == NetworkType_IPTunnelling && config.ipaddress == NULL) {
+	/* NetworkType_IPTunnellingTap attaches to a pre-created persistent TAP
+	   owned by the invoking user, instead of creating its own. The host has
+	   then already assigned the address and brought the link up, so we skip the
+	   privileged SIOCSIFADDR / IFF_UP ioctls and RPCEmu needs no CAP_NET_ADMIN
+	   at all. Plain NetworkType_IPTunnelling keeps upstream behaviour: it
+	   creates its own tap and configures it (needs root / CAP_NET_ADMIN). */
+	preconfigured = (config.network_type == NetworkType_IPTunnellingTap);
+
+	if (config.network_type == NetworkType_IPTunnelling &&
+	    config.ipaddress == NULL) {
 		error("IP address not configured");
+		return -1;
+	}
+
+	if (config.network_type == NetworkType_IPTunnellingTap &&
+	    config.tunnel_ifname == NULL) {
+		error("Tunnel interface not configured");
 		return -1;
 	}
 
@@ -121,6 +138,14 @@ tun_alloc(void)
 
 	memset(&ifr, 0, sizeof(ifr));
 	ifr.ifr_flags = IFF_TAP;
+
+	if (preconfigured) {
+		/* Attach to the named, already-existing persistent TAP. Because it
+		   was created with `ip tuntap add ... user <me>`, TUNSETIFF succeeds
+		   for that user without CAP_NET_ADMIN. */
+		strncpy(ifr.ifr_name, config.tunnel_ifname, IFNAMSIZ - 1);
+		ifr.ifr_name[IFNAMSIZ - 1] = '\0';
+	}
 
 	if (ioctl(fd, TUNSETIFF, &ifr) < 0) {
 		error("Error setting TAP on tunnel device: %s", strerror(errno));
@@ -159,17 +184,19 @@ tun_alloc(void)
 		}
 	}
 
-	// Get the current flags
-	if (ioctl(sd, SIOCGIFFLAGS, &ifr) == -1) {
-		error("Error getting %s flags: %s", ifr.ifr_name, strerror(errno));
-		return -1;
-	}
+	if (!preconfigured) {
+		// Get the current flags
+		if (ioctl(sd, SIOCGIFFLAGS, &ifr) == -1) {
+			error("Error getting %s flags: %s", ifr.ifr_name, strerror(errno));
+			return -1;
+		}
 
-	// Turn on the UP flag
-	ifr.ifr_flags |= IFF_UP;
-	if (ioctl(sd, SIOCSIFFLAGS, &ifr) == -1) {
-		error("Error setting %s flags: %s", ifr.ifr_name, strerror(errno));
-		return -1;
+		// Turn on the UP flag
+		ifr.ifr_flags |= IFF_UP;
+		if (ioctl(sd, SIOCSIFFLAGS, &ifr) == -1) {
+			error("Error setting %s flags: %s", ifr.ifr_name, strerror(errno));
+			return -1;
+		}
 	}
 
 	if (config.macaddress != NULL) {
