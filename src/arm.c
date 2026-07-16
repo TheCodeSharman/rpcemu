@@ -37,6 +37,15 @@ ARMState arm;
 
 int blockend;
 uint32_t inscount;
+
+/* TEMPORARY: EtherRPCEm execution trace ring */
+#define DBG_RING 512
+static uint32_t dbg_ring[DBG_RING];
+static uint32_t dbg_ring_op[DBG_RING];
+static unsigned dbg_ring_pos;
+static uint32_t dbg_watch_addr, dbg_watch_last, dbg_prev_pc;
+static int dbg_watch_init;
+
 int cpsr;
 static uint32_t *pcpsr;
 
@@ -564,6 +573,108 @@ arm_exec(void)
 			}
 		}
 		opcode = pccache2[PC >> 2];
+
+		/* TEMPORARY INSTRUMENTATION: dump client mbctl at Mbuf_OpenSession
+		   entry (MbufManager 0.30 SWI 0 handler in the RO5.30 ROM). */
+		{
+			static unsigned dbg_mb = 0;
+			if (PC == 0xfc2ead54 && dbg_mb < 12) {
+				dbg_mb++;
+				rpclog("MBUF_OPEN #%u: mbctl=%08x size=%08x vers=%08x mincontig=%08x spare1=%08x\n",
+				       dbg_mb, arm.reg[0],
+				       mem_read32(arm.reg[0] + 0x04),
+				       mem_read32(arm.reg[0] + 0x08),
+				       mem_read32(arm.reg[0] + 0x18),
+				       mem_read32(arm.reg[0] + 0x1c));
+			}
+			/* CLib _kernel_swi entry: r0=SWI number, r1=regs block.
+			   Catch who asks for Mbuf_OpenSession and in what C context. */
+			/* Ring buffer of PCs executed inside the EtherRPCEm module
+			   (RMA 201052f4..20108548 at 32MB) so we can see exactly how
+			   control reaches open_mbuf_manager_session. */
+			/* Poll a watched word: catches every writer (STM, inline
+			   fast path, DMA-ish paths) without hooking each one. */
+			if (!dbg_watch_init) {
+				const char *w = getenv("RPCEMU_WATCH");
+				dbg_watch_init = 1;
+				if (w != NULL) {
+					dbg_watch_addr = (uint32_t) strtoul(w, NULL, 16);
+					rpclog("WATCH: watching %08x\n", dbg_watch_addr);
+				}
+			}
+			if (dbg_watch_addr != 0) {
+				uint32_t cur = mem_read32(dbg_watch_addr);
+				if (cur != dbg_watch_last) {
+					rpclog("WATCH %08x: %08x -> %08x  (written by pc=%08x)\n",
+					       dbg_watch_addr, dbg_watch_last, cur, dbg_prev_pc);
+					dbg_watch_last = cur;
+				}
+			}
+			dbg_prev_pc = PC;
+			/* cmhg init veneer's pop: report the frame it returns through */
+			if (PC == 0x201055c0) {
+				rpclog("VENEER pop {r7,r8,sb,sl,fp,pc} at sp=%08x:"
+				       " r7=%08x r8=%08x sb=%08x sl=%08x fp=%08x pc=%08x\n",
+				       arm.reg[13],
+				       mem_read32(arm.reg[13] +  0), mem_read32(arm.reg[13] +  4),
+				       mem_read32(arm.reg[13] +  8), mem_read32(arm.reg[13] + 12),
+				       mem_read32(arm.reg[13] + 16), mem_read32(arm.reg[13] + 20));
+			}
+			if (PC >= 0x20100000 && PC < 0x20140000) {
+				dbg_ring[dbg_ring_pos & (DBG_RING - 1)] = PC;
+				dbg_ring_op[dbg_ring_pos & (DBG_RING - 1)] = opcode;
+				dbg_ring_pos++;
+			}
+			/* EtherRPCEm call sites for open_mbuf_manager_session
+			   (RMA base 201052f4 at 32MB): initialise()=20105db4,
+			   service_call()=20106260 */
+			if (PC == 0x20105db4 || PC == 0x20106260) {
+				rpclog("ETHER: open_mbuf_manager_session called from %s (pc=%08x) sl=%08x sb=%08x r0(mbctl)=%08x\n",
+				       PC == 0x20105db4 ? "initialise()" : "service_call()",
+				       PC, arm.reg[10], arm.reg[9], arm.reg[0]);
+			}
+			if (PC == 0xfc16a6dc && (arm.reg[0] & ~0x80000000u) == 0x4a580) {
+				unsigned k;
+				rpclog("_kernel_swi(Mbuf_OpenSession) caller: lr=%08x sl=%08x sb=%08x sp=%08x mode=%u\n",
+				       arm.reg[14], arm.reg[10], arm.reg[9], arm.reg[13], arm.mode);
+				rpclog("    regs block @ r1=%08x -> r0 arg=%08x\n",
+				       arm.reg[1], mem_read32(arm.reg[1]));
+				rpclog("    SVC stack dump from sp=%08x (looking for return addrs):\n",
+				       arm.reg[13]);
+				for (k = 0; k < 0x40; k += 4) {
+					uint32_t v = mem_read32(arm.reg[13] + k);
+					const char *tag = "";
+					if ((v & 0xfff00000) == 0x20100000) tag = "  <- RMA (EtherRPCEm?)";
+					else if ((v & 0xff000000) == 0xfc000000) tag = "  <- ROM";
+					rpclog("      [sp+%02x] = %08x%s\n", k, v, tag);
+				}
+				/* identify the module: dump code bytes at the call site */
+				rpclog("    code at lr-8..lr+4: %08x %08x %08x\n",
+				       mem_read32(arm.reg[14] - 8), mem_read32(arm.reg[14] - 4),
+				       mem_read32(arm.reg[14]));
+			}
+			/* ROM MbufManager 0.30 E05 reject path: original r0 (mbctl) is
+			   the first word pushed on the stack. */
+			if (PC == 0xfc2eae14) {
+				uint32_t mbctl = mem_read32(arm.reg[13]);
+				{
+					unsigned n = dbg_ring_pos < DBG_RING ? dbg_ring_pos : DBG_RING;
+					unsigned j;
+					rpclog("--- RAW exec trace: PC + OPCODE (last %u) ---\n", n);
+					for (j = 0; j < n; j++) {
+						uint32_t v = dbg_ring[(dbg_ring_pos - n + j) & (DBG_RING - 1)];
+						rpclog("   %08x  %08x\n", v,
+						       dbg_ring_op[(dbg_ring_pos - n + j) & (DBG_RING - 1)]);
+					}
+				}
+				rpclog("MBUF_REJECT(E05)! mbctl=%08x size=%08x vers=%08x mincontig=%08x spare1=%08x\n",
+				       mbctl,
+				       mem_read32(mbctl + 0x04),
+				       mem_read32(mbctl + 0x08),
+				       mem_read32(mbctl + 0x18),
+				       mem_read32(mbctl + 0x1c));
+			}
+		}
 
 		if (flaglookup[opcode >> 28][(*pcpsr) >> 28]) {
 			if (arm.arch_v4) {

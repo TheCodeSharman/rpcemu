@@ -58,6 +58,7 @@ extern int mmu,memmode;
 extern void cacheclearpage(uint32_t a);
 
 extern uint32_t mem_rammask;
+extern uint32_t mem_ram1mask;
 extern uint32_t mem_vrammask;
 
 /**

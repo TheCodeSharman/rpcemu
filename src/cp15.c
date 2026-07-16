@@ -263,7 +263,7 @@ cp15_write(uint32_t opcode, uint32_t val)
 		case 0x1e000000:
 		case 0x1f000000:
 			tlbram = ram1;
-			tlbrammask = 0x7ffffff >> 2;
+			tlbrammask = mem_ram1mask >> 2;
 			break;
 		}
 		cp15_tlb_flush_all();
@@ -541,6 +541,61 @@ do_fault:
 		cp15.fault_address = addr;
 		cp15.fault_status = (domain << 4) | fault_code;
 	}
+	{
+		/* TEMPORARY INSTRUMENTATION (RAM-sizing investigation) */
+		static unsigned dbg_faults = 0;
+		static int dbg_peeking = 0;
+		if (dbg_faults < 200 && !dbg_peeking) {
+			dbg_faults++;
+			rpclog("DABT[%s] addr=%08x pc=%08x fault_code=%u domain=%u mode=%u\n",
+			       prefetch ? "pf" : "data", addr, arm.reg[15] - 8,
+			       fault_code, domain, arm.mode);
+			rpclog("  r0=%08x r1=%08x r2=%08x r3=%08x r4=%08x r5=%08x r6=%08x r7=%08x\n",
+			       arm.reg[0], arm.reg[1], arm.reg[2], arm.reg[3],
+			       arm.reg[4], arm.reg[5], arm.reg[6], arm.reg[7]);
+			rpclog("  r8=%08x sb=%08x sl=%08x fp=%08x ip=%08x sp=%08x lr=%08x pc=%08x\n",
+			       arm.reg[8], arm.reg[9], arm.reg[10], arm.reg[11],
+			       arm.reg[12], arm.reg[13], arm.reg[14], arm.reg[15]);
+			/* At CLib's _kernel_swi error path, r0 -> RISC OS error block.
+			   Decode it (guarded: peeking must not recurse into do_fault). */
+			if ((arm.reg[15] - 8) == 0xfc16aab8 && !dbg_peeking) {
+				uint32_t saved_event = arm.event;
+				uint32_t saved_fa = cp15.fault_address;
+				uint32_t saved_fs = cp15.fault_status;
+				char buf[192];
+				uint32_t errblk = arm.reg[0];
+				unsigned i;
+
+				dbg_peeking = 1;
+				arm.event &= ~0x40u;
+				{
+					uint32_t pa = translateaddress2(errblk, 0, 0);
+					if (!(arm.event & 0x40)) {
+						uint32_t errnum = mem_phys_read32(pa);
+						rpclog("  ERROR BLOCK @ %08x: errnum=%08x msg=\"",
+						       errblk, errnum);
+						for (i = 0; i < sizeof(buf) - 1; i++) {
+							uint32_t a = errblk + 4 + i;
+							uint32_t p = translateaddress2(a & ~3u, 0, 0);
+							char c;
+							if (arm.event & 0x40) break;
+							c = (char) ((mem_phys_read32(p) >> ((a & 3) * 8)) & 0xff);
+							if (c == 0) break;
+							buf[i] = c;
+						}
+						buf[i] = 0;
+						rpclog("%s\"\n", buf);
+					} else {
+						rpclog("  (error block @ %08x not mapped)\n", errblk);
+					}
+				}
+				arm.event = saved_event;
+				cp15.fault_address = saved_fa;
+				cp15.fault_status = saved_fs;
+				dbg_peeking = 0;
+			}
+		}
+	}
 	return 0;
 }
 
@@ -598,7 +653,7 @@ getpccache(uint32_t addr)
 	case 0x1e000000:
 	case 0x1f000000:
 		if (ram1 != NULL) {
-			return &ram1[((uintptr_t) (phys_addr & 0x7ffffff) - (uintptr_t) addr) >> 2];
+			return &ram1[((uintptr_t) (phys_addr & mem_ram1mask) - (uintptr_t) addr) >> 2];
 		}
 	}
 	fatal("Bad PC %08x %08x\n", addr, phys_addr);

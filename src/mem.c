@@ -46,6 +46,7 @@ int mmu = 0;     /**< Bool of whether the MMU is enabled */
 int memmode = 0; /**< Bool of whether ARM is in a privileged mode */
 
 uint32_t mem_rammask; /**< Mask used for SIMM Bank 0/1 to handle the repeating address space */
+uint32_t mem_ram1mask; /**< Mask used for SIMM 1 to handle the repeating address space */
 uint32_t mem_vrammask; /**< Mask used for VRAM to handle the repeating address space */
 
 static uint8_t *ramb00 = NULL; /**< Byte pointer to SIMM 0 Bank 0 of physical RAM */
@@ -96,17 +97,33 @@ mem_reset(uint32_t ramsize, uint32_t vram_size)
 	/* Convert ramsize from bytes to megabytes */
 	ramsize *= (1024 * 1024);
 
-	if (ramsize == (256 * 1024 * 1024)) {
+	/* TEMPORARY EXPERIMENT: RPCEMU_SPLIT_SIMM1 puts half the configured RAM
+	   into SIMM 1, keeping the TOTAL identical. Distinguishes "total RAM seen
+	   by RISC OS" from "RPCEmu's ram1 buffer exists". */
+	if (getenv("RPCEMU_SPLIT_SIMM1") != NULL && ramsize != (256 * 1024 * 1024)) {
+		uint32_t simm1_size = ramsize / 2;
+
+		ramsize = ramsize / 2; /* half stays in SIMM 0 (two banks) */
+
+		ram1 = realloc(ram1, simm1_size);
+		ramb1 = (uint8_t *) ram1;
+		memset(ram1, 0, simm1_size);
+		mem_ram1mask = simm1_size - 1;
+		rpclog("EXPERIMENT: split SIMM1 - SIMM0 2x%uMB + SIMM1 %uMB\n",
+		       (ramsize / 2) / (1024 * 1024), simm1_size / (1024 * 1024));
+	} else if (ramsize == (256 * 1024 * 1024)) {
 		ramsize = 128 * 1024 * 1024; /* 128MB for first SIMM */
 
 		/* Allocate additional 128MB */
 		ram1 = realloc(ram1, 128 * 1024 * 1024);
 		ramb1 = (uint8_t *) ram1;
 		memset(ram1, 0, 128 * 1024 * 1024);
+		mem_ram1mask = 0x7ffffff;
 	} else {
 		free(ram1);
 		ram1 = NULL;
 		ramb1 = NULL;
+		mem_ram1mask = 0x7ffffff;
 	}
 
 	/* Calculate mem_rammask */
@@ -255,7 +272,16 @@ mem_phys_read32(uint32_t addr)
 	case 0x1e000000:
 	case 0x1f000000:
 		if (ram1 != NULL) {
-			return ram1[(addr & 0x7ffffff) >> 2];
+			return ram1[(addr & mem_ram1mask) >> 2];
+		}
+		{
+			/* TEMPORARY INSTRUMENTATION: read from unbacked SIMM 1 */
+			static unsigned dbg_hole = 0;
+			if (dbg_hole < 40) {
+				dbg_hole++;
+				rpclog("SIMM1HOLE read32 phys=%08x pc=%08x -> 0\n",
+				       addr, arm.reg[15] - 8);
+			}
 		}
 	}
 	return 0;
@@ -364,7 +390,7 @@ mem_phys_read8(uint32_t addr)
 #ifdef _RPCEMU_BIG_ENDIAN
 			addr ^= 3;
 #endif
-			return ramb1[addr & 0x7ffffff];
+			return ramb1[addr & mem_ram1mask];
 		}
 	}
 	return 0xff;
@@ -472,7 +498,15 @@ mem_phys_write32(uint32_t addr, uint32_t val)
 	case 0x1e000000:
 	case 0x1f000000:
 		if (ram1 != NULL) {
-			ram1[(addr & 0x7ffffff) >> 2] = val;
+			ram1[(addr & mem_ram1mask) >> 2] = val;
+		} else {
+			/* TEMPORARY INSTRUMENTATION: write to unbacked SIMM 1 */
+			static unsigned dbg_holew = 0;
+			if (dbg_holew < 40) {
+				dbg_holew++;
+				rpclog("SIMM1HOLE write32 phys=%08x val=%08x pc=%08x (dropped)\n",
+				       addr, val, arm.reg[15] - 8);
+			}
 		}
 		return;
 	}
@@ -591,7 +625,7 @@ mem_phys_write8(uint32_t addr, uint8_t val)
 #ifdef _RPCEMU_BIG_ENDIAN
 			addr ^= 3;
 #endif
-			ramb1[addr & 0x7ffffff] = val;
+			ramb1[addr & mem_ram1mask] = val;
 		}
 		return;
 	}
@@ -649,7 +683,7 @@ readmemfl(uint32_t addr)
 		case 0x1e000000:
 		case 0x1f000000:
 			if (ram1 != NULL) {
-				vradd(addr, &ram1[((readmemcache2 & 0x7ffffff) - (uintptr_t) (addr & ~0xfffu)) >> 2], 0, readmemcache2);
+				vradd(addr, &ram1[((readmemcache2 & mem_ram1mask) - (uintptr_t) (addr & ~0xfffu)) >> 2], 0, readmemcache2);
 				return *(const uint32_t *) (vraddrl[addr >> 12] + (addr & ~3u));
 			}
 			break;
@@ -685,7 +719,7 @@ readmemfl(uint32_t addr)
 		case 0x1e000000:
 		case 0x1f000000:
 			if (ram1 != NULL) {
-				vradd(addr, &ram1[((addr & 0x7ffffff & ~0xfffu) - (uintptr_t) (addr & ~0xfffu)) >> 2], 0, addr);
+				vradd(addr, &ram1[((addr & mem_ram1mask & ~0xfffu) - (uintptr_t) (addr & ~0xfffu)) >> 2], 0, addr);
 			}
 			break;
 		}
@@ -758,7 +792,7 @@ readmemfb(uint32_t addr)
 		case 0x1e000000:
 		case 0x1f000000:
 			if (ram1 != NULL) {
-				vradd(addr, &ram1[((readmemcache2 & 0x7ffffff) - (uintptr_t) (addr & ~0xfffu)) >> 2], 0, readmemcache2);
+				vradd(addr, &ram1[((readmemcache2 & mem_ram1mask) - (uintptr_t) (addr & ~0xfffu)) >> 2], 0, readmemcache2);
 #ifdef _RPCEMU_BIG_ENDIAN
 				addr ^= 3;
 #endif
@@ -817,7 +851,7 @@ writememfl(uint32_t addr, uint32_t val)
 		case 0x1e000000:
 		case 0x1f000000:
 			if (ram1 != NULL) {
-				vwadd(addr, &ram1[((writememcache2 & 0x7ffffff) - (uintptr_t) (addr & ~0xfffu)) >> 2], 0, writememcache2);
+				vwadd(addr, &ram1[((writememcache2 & mem_ram1mask) - (uintptr_t) (addr & ~0xfffu)) >> 2], 0, writememcache2);
 			}
 			break;
 		}
@@ -872,7 +906,7 @@ writememfb(uint32_t addr, uint8_t val)
 		case 0x1e000000:
 		case 0x1f000000:
 			if (ram1 != NULL) {
-				vwadd(addr, &ram1[((writemembcache2 & 0x7ffffff) - (uintptr_t) (addr & ~0xfffu)) >> 2], 0, writemembcache2);
+				vwadd(addr, &ram1[((writemembcache2 & mem_ram1mask) - (uintptr_t) (addr & ~0xfffu)) >> 2], 0, writemembcache2);
 			}
 			break;
 		}
