@@ -14,6 +14,8 @@
 #define ARCEM_SWI_DEBUG     (ARCEM_SWI_CHUNK + 2)
 //#define ARCEM_SWI_NANOSLEEP (ARCEM_SWI_CHUNK + 3)	/* Reserved */
 #define ARCEM_SWI_NETWORK   (ARCEM_SWI_CHUNK + 4)
+/* +5 is ARCEM_SWI_HOSTCMD on feature/spork-hostcmd; keep off it */
+#define ARCEM_SWI_TRACE     (ARCEM_SWI_CHUNK + 6)
 
 typedef uint32_t ARMword;
 typedef struct {
