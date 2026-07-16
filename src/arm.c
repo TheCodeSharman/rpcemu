@@ -39,7 +39,7 @@ int blockend;
 uint32_t inscount;
 
 /* TEMPORARY: EtherRPCEm execution trace ring */
-#define DBG_RING 512
+#define DBG_RING 32768
 static uint32_t dbg_ring[DBG_RING];
 static uint32_t dbg_ring_op[DBG_RING];
 static unsigned dbg_ring_pos;
@@ -620,10 +620,24 @@ arm_exec(void)
 				       mem_read32(arm.reg[13] +  8), mem_read32(arm.reg[13] + 12),
 				       mem_read32(arm.reg[13] + 16), mem_read32(arm.reg[13] + 20));
 			}
-			if (PC >= 0x20100000 && PC < 0x20140000) {
-				dbg_ring[dbg_ring_pos & (DBG_RING - 1)] = PC;
-				dbg_ring_op[dbg_ring_pos & (DBG_RING - 1)] = opcode;
-				dbg_ring_pos++;
+			/* UNWINDOWED: record every instruction. A windowed ring makes
+			   "call out to ROM and return" look like sequential execution. */
+			dbg_ring[dbg_ring_pos & (DBG_RING - 1)] = PC;
+			dbg_ring_op[dbg_ring_pos & (DBG_RING - 1)] = opcode;
+			dbg_ring_pos++;
+			/* open_mbuf_manager_session ENTRY: lr here IS the real caller. */
+			if (PC == 0x20105a98) {
+				rpclog("OPEN_MBUF ENTRY: caller lr=%08x  r0(mbctl)=%08x sl=%08x sb=%08x fp=%08x sp=%08x mode=%u\n",
+				       arm.reg[14], arm.reg[0], arm.reg[10], arm.reg[9],
+				       arm.reg[11], arm.reg[13], arm.mode);
+				if (arm.reg[0] == 3) {
+					unsigned n = 1400, j;
+					rpclog("=== last %u instructions before the BAD entry ===\n", n);
+					for (j = 0; j < n; j++) {
+						unsigned k = (dbg_ring_pos - n + j) & (DBG_RING - 1);
+						rpclog("   %08x  %08x\n", dbg_ring[k], dbg_ring_op[k]);
+					}
+				}
 			}
 			/* EtherRPCEm call sites for open_mbuf_manager_session
 			   (RMA base 201052f4 at 32MB): initialise()=20105db4,
