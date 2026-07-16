@@ -15,6 +15,7 @@
 //#define ARCEM_SWI_NANOSLEEP (ARCEM_SWI_CHUNK + 3)	/* Reserved */
 #define ARCEM_SWI_NETWORK   (ARCEM_SWI_CHUNK + 4)
 #define ARCEM_SWI_HOSTCMD   (ARCEM_SWI_CHUNK + 5)	/* drive the guest CLI from the host (matches riscos-progs/HostCmd) */
+#define ARCEM_SWI_TRACE     (ARCEM_SWI_CHUNK + 6)
 
 typedef uint32_t ARMword;
 typedef struct {

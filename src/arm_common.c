@@ -639,6 +639,18 @@ opSWI(uint32_t opcode)
 			goto realswi;	/* disabled -> Unknown SWI; guest detects absence */
 		}
 	}
+	else if (swinum == ARCEM_SWI_TRACE) {
+		/* Driver-side trace hook. Deliberately not gated on networking
+		   or any config: the whole point is that it must work from a
+		   context with no C environment (sl=0), which is where the
+		   EtherRPCEm mbuf abort happens. Handled inline like the other
+		   emulator SWIs, so it raises no exception and does not bank
+		   lr -- callers can be leaf routines that never touch a stack. */
+		rpclog("TRACE tag=%u v1=%08x v2=%08x | sl=%08x fp=%08x sp=%08x lr=%08x mode=%u\n",
+		       arm.reg[0], arm.reg[1], arm.reg[2],
+		       arm.reg[10], arm.reg[11], arm.reg[13], arm.reg[14],
+		       arm.reg[cpsr] & 0x1f);
+	}
 #ifdef RPCEMU_NETWORKING
 	else if (swinum == ARCEM_SWI_NETWORK) {
 		if (config.network_type != NetworkType_Off) {

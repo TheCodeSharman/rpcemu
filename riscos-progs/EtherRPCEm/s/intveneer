@@ -78,4 +78,14 @@ callrx
 	MOV	r12, r3
 	MOV	pc, r2
 
+; void rpcemu_trace(uint32_t tag, uint32_t v1, uint32_t v2)
+;
+; RPCEmu intercepts this SWI inline, so it raises no exception and does not
+; bank lr. That lets this be a leaf with no stack and no C environment -- it
+; must survive being called with sl=0, which is the context we are chasing.
+	EXPORT	|rpcemu_trace|
+rpcemu_trace
+	SWI	0x56ac6
+	MOV	pc, lr
+
 	END

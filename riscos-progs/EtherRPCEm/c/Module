@@ -51,6 +51,22 @@ _kernel_oserror *networkrxswi(struct mbuf *mbuf, RxHdr *hdr, int *valid);
 void network_swi_irq(volatile int *irqstatus);
 void network_swi_hwaddr(uint8_t *hwaddr);
 void callrx(Dib *dibaddr, struct mbuf *mbuf_chain, int handler, void *pwp);
+void rpcemu_trace(unsigned int tag, unsigned int v1, unsigned int v2);
+
+/* Trace tags. RPCEmu logs each call to rpclog.txt along with sl/fp/sp/lr/mode,
+   so a tag firing with sl=0 pinpoints the callerless entry we are chasing.
+   Numeric rather than string tags so the hook stays a stackless leaf. */
+#define TR_INIT_ENTRY		1	/* initialise()                      */
+#define TR_INIT_CALLSITE	2	/* initialise() -> open_mbuf         */
+#define TR_OPEN_ENTRY		3	/* open_mbuf_manager_session() entry */
+#define TR_OPEN_PRESWI		4	/* ...immediately before the SWI     */
+#define TR_OPEN_POSTSWI		5	/* ...immediately after the SWI      */
+#define TR_SERVICE_ENTRY	6	/* service_call()                    */
+#define TR_SERVICE_MBUF		7	/* Service_MbufManagerStatus         */
+#define TR_SERVICE_CALLSITE	8	/* service_call() -> open_mbuf       */
+#define TR_CALLBACK_ENTRY	9	/* initialise_callback_handler()     */
+#define TR_IRQ_ENTRY		10	/* device_irq_handler()              */
+#define TR_INITCHIP_ENTRY	11	/* InitChip()                        */
 
 // versionof DCI supported
 #define DCIVersion 403
@@ -178,6 +194,8 @@ initialise_callback_handler(_kernel_swi_regs *r, void *pw)
 	UNUSED(r);
 	UNUSED(pw);
 
+	rpcemu_trace(TR_CALLBACK_ENTRY, (unsigned int) r, (unsigned int) pw);
+
 	SendServiceDCIDriverStatus(DCIDRIVER_STARTING);
 
 	return NULL;
@@ -190,6 +208,9 @@ static _kernel_oserror *
 open_mbuf_manager_session(dci4_mbctl *mbctl)
 {
 	_kernel_swi_regs r;
+	_kernel_oserror *err;
+
+	rpcemu_trace(TR_OPEN_ENTRY, (unsigned int) mbctl, (unsigned int) work.mbctl);
 
 	memset(mbctl, 0, sizeof(struct mbctl));
 	mbctl->mbcsize = sizeof(struct mbctl);
@@ -201,7 +222,10 @@ open_mbuf_manager_session(dci4_mbctl *mbctl)
 	mbctl->spare1 = 0;
 
 	r.r[0] = (int) mbctl;
-	return _kernel_swi(Mbuf_OpenSession, &r, &r);
+	rpcemu_trace(TR_OPEN_PRESWI, (unsigned int) mbctl, (unsigned int) &r);
+	err = _kernel_swi(Mbuf_OpenSession, &r, &r);
+	rpcemu_trace(TR_OPEN_POSTSWI, (unsigned int) err, (unsigned int) mbctl);
+	return err;
 }
 
 /**
@@ -254,6 +278,8 @@ InitChip(void *pw)
 {
 	_kernel_swi_regs r;
 
+	rpcemu_trace(TR_INITCHIP_ENTRY, (unsigned int) pw, (unsigned int) work.mbctl);
+
 	work.base_dib.dib_swibase = EtherRPCEm_00;
 	work.base_dib.dib_name = "rpcem";
 	work.base_dib.dib_unit = 0;
@@ -292,6 +318,8 @@ initialise(const char *cmd_tail, int podule_base, void *pw)
 
 	UNUSED(cmd_tail);
 
+	rpcemu_trace(TR_INIT_ENTRY, (unsigned int) pw, (unsigned int) podule_base);
+
 	memset(&work, 0, sizeof(work));
 
 	network_swi_hwaddr(work.dev_addr);
@@ -303,6 +331,7 @@ initialise(const char *cmd_tail, int podule_base, void *pw)
 		return &ERR_ENOBUFS;
 	}
 
+	rpcemu_trace(TR_INIT_CALLSITE, (unsigned int) work.mbctl, 0);
 	if ((err = open_mbuf_manager_session(work.mbctl)) != NULL) {
 		return err;
 	}
@@ -417,6 +446,8 @@ device_irq_handler(_kernel_swi_regs *r, void *pw)
 	static volatile int sema = 0;
 	_kernel_swi_regs rg;
 
+	rpcemu_trace(TR_IRQ_ENTRY, (unsigned int) sema, (unsigned int) work.mbctl);
+
 	// Clear interrupt
 	rg.r[0] = 3;
 	rg.r[2] = 0;
@@ -494,6 +525,8 @@ service_call(int service_number, _kernel_swi_regs *r, void *pw)
 	_kernel_swi_regs rg;
 	_kernel_oserror *erp;
 
+	rpcemu_trace(TR_SERVICE_ENTRY, (unsigned int) service_number, (unsigned int) r);
+
 	switch (service_number) {
 	case Service_StartWimp:
 		autosense_install();
@@ -514,9 +547,11 @@ service_call(int service_number, _kernel_swi_regs *r, void *pw)
 		break;
 
 	case Service_MbufManagerStatus:
+		rpcemu_trace(TR_SERVICE_MBUF, (unsigned int) r->r[0], (unsigned int) work.mbctl);
 		switch (r->r[0]) {
 		case 0: // Manager started ... better try to restart our stuff
 			if (work.mbctl == NULL) {
+				rpcemu_trace(TR_SERVICE_CALLSITE, (unsigned int) work.mbctl, 0);
 				if ((erp = open_mbuf_manager_session(work.mbctl)) == NULL) {
 					InitChip(work.pwp);
 				}
