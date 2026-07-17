@@ -570,18 +570,28 @@ arm_exec(void)
 		   watch the kernel's callback dispatch `mov pc, fp` (fc0085dc),
 		   whose address is in ROM and so is stable across RAM sizes. */
 		{
-			static uint32_t watch_pc = 0xffffffff;
+			static uint32_t watch_pc[4];
+			static int watch_n = -1;
 			static int watch_hits = 0;
-			if (watch_pc == 0xffffffff) {
+			if (watch_n < 0) {
 				const char *e = getenv("RPCEMU_WATCHPC");
-				watch_pc = e ? (uint32_t) strtoul(e, NULL, 16) : 0;
+				watch_n = 0;
+				while (e && *e && watch_n < 4) {
+					watch_pc[watch_n++] = (uint32_t) strtoul(e, NULL, 16);
+					e = strchr(e, ',');
+					if (e) e++;
+				}
 			}
-			if (watch_pc != 0 && (arm.reg[15] & 0x3fffffc) == (watch_pc & 0x3fffffc)
-			    && watch_hits < 12) {
-				watch_hits++;
-				rpclog("WATCH #%d pc=%08x opcode=%08x r0=%08x fp(r11)=%08x ip(r12)=%08x sl=%08x sp=%08x lr=%08x\n",
-				       watch_hits, watch_pc, opcode, arm.reg[0], arm.reg[11],
-				       arm.reg[12], arm.reg[10], arm.reg[13], arm.reg[14]);
+			if (watch_hits < 200) {
+				for (int wi = 0; wi < watch_n; wi++) {
+					if (arm.reg[15] != watch_pc[wi])
+						continue;
+					watch_hits++;
+					rpclog("WATCH #%d @%08x op=%08x r0=%08x r2=%08x r4=%08x fp=%08x ip=%08x sl=%08x sp=%08x lr=%08x\n",
+					       watch_hits, arm.reg[15] - 8, opcode,
+					       arm.reg[0], arm.reg[2], arm.reg[4], arm.reg[11],
+					       arm.reg[12], arm.reg[10], arm.reg[13], arm.reg[14]);
+				}
 			}
 		}
 
@@ -1906,6 +1916,28 @@ skip:
 							rpclog("  r%-2d=%08x r%-2d=%08x r%-2d=%08x r%-2d=%08x\n",
 							       i, arm.reg[i], i+1, arm.reg[i+1],
 							       i+2, arm.reg[i+2], i+3, arm.reg[i+3]);
+						}
+						/* Is the module still where the caller thinks it is?
+						   fp holds the callback address (= base+0x3e4), so
+						   dump the implied module header: a live EtherRPCEm
+						   reads 0,258,2d0,1cc. Anything else means the RMA
+						   block is no longer the module. */
+						{
+							uint32_t base = arm.reg[11] - 0x3e4;
+							rpclog("  implied module base %08x, header:\n", base);
+							for (int i = 0; i < 2; i++) {
+								rpclog("    %08x: %08x %08x %08x %08x\n",
+								       base + i*16,
+								       mem_read32(base + i*16),
+								       mem_read32(base + i*16 + 4),
+								       mem_read32(base + i*16 + 8),
+								       mem_read32(base + i*16 + 12));
+							}
+							rpclog("  at callback addr %08x: %08x %08x %08x %08x\n",
+							       arm.reg[11], mem_read32(arm.reg[11]),
+							       mem_read32(arm.reg[11] + 4),
+							       mem_read32(arm.reg[11] + 8),
+							       mem_read32(arm.reg[11] + 12));
 						}
 					}
 				}

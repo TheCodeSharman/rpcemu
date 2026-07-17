@@ -68,6 +68,9 @@ void rpcemu_trace(unsigned int tag, unsigned int v1, unsigned int v2);
 #define TR_IRQ_ENTRY		10	/* device_irq_handler()              */
 #define TR_INITCHIP_ENTRY	11	/* InitChip()                        */
 #define TR_ADDCB		12	/* the addresses handed to the kernel */
+#define TR_INIT_CDV		13	/* after OS_ClaimDeviceVector        */
+#define TR_INIT_PODINFO		14	/* after Podule_ReadInfo             */
+#define TR_INIT_OK		15	/* initialise() returning success    */
 
 // versionof DCI supported
 #define DCIVersion 403
@@ -344,12 +347,14 @@ initialise(const char *cmd_tail, int podule_base, void *pw)
 	InitChip(pw);
 
 	err = _swix(OS_ClaimDeviceVector, _INR(0,4), 13, device_irq, pw, podule_base, 1);
+	rpcemu_trace(TR_INIT_CDV, (unsigned int) err, err ? (unsigned int) err->errnum : 0);
 	if (err) {
 		return err;
 	}
 
 	// Enable Podule IRQs
 	err = _swix(Podule_ReadInfo, _INR(0,3), (1 << 16) | (1 << 15), ribuff, sizeof(ribuff), podule_base);
+	rpcemu_trace(TR_INIT_PODINFO, (unsigned int) err, err ? (unsigned int) err->errnum : (unsigned int) ribuff[0]);
 	if (err) {
 		return err;
 	}
@@ -364,6 +369,7 @@ initialise(const char *cmd_tail, int podule_base, void *pw)
 	// The value passed here no longer matters, provided it's non-zero
 	network_swi_irq((int *) 1);
 
+	rpcemu_trace(TR_INIT_OK, 0, 0);
 	return NULL;
 }
 
