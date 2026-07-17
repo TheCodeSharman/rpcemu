@@ -976,9 +976,10 @@ Emulator::config_updated(Config *new_config, Model new_model)
  * @param network_type
  * @param bridgename
  * @param ipaddress
+ * @param tunnelinterface
  */
 void
-Emulator::network_config_updated(NetworkType network_type, QString bridgename, QString ipaddress)
+Emulator::network_config_updated(NetworkType network_type, QString bridgename, QString ipaddress, QString tunnelinterface)
 {
 	QByteArray ba_bridgename = bridgename.toUtf8();
 	const char *bridge_name = ba_bridgename.constData();
@@ -986,7 +987,10 @@ Emulator::network_config_updated(NetworkType network_type, QString bridgename, Q
 	QByteArray ba_ipaddress = ipaddress.toUtf8();
 	const char *ip_address = ba_ipaddress.constData();
 
-	if (network_config_changed(network_type, bridge_name, ip_address)) {
+	QByteArray ba_tunnelif = tunnelinterface.toUtf8();
+	const char *tunnel_if = ba_tunnelif.constData();
+
+	if (network_config_changed(network_type, bridge_name, ip_address, tunnel_if)) {
 		this->reset();
 	}
 }

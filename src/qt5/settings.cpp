@@ -195,6 +195,8 @@ config_load(Config * config)
 		config->network_type = NetworkType_NAT;
 	} else if (!QString::compare(sText, "iptunnelling", Qt::CaseInsensitive)) {
 		config->network_type = NetworkType_IPTunnelling;
+	} else if (!QString::compare(sText, "iptunnellingtap", Qt::CaseInsensitive)) {
+		config->network_type = NetworkType_IPTunnellingTap;
 	} else if (!QString::compare(sText, "ethernetbridging", Qt::CaseInsensitive)) {
 		config->network_type = NetworkType_EthernetBridging;
 	} else {
@@ -235,6 +237,14 @@ config_load(Config * config)
 		config->bridgename = strdup(ba.data());
 	} else {
 		config->bridgename = NULL;
+	}
+
+	sText = settings.value("tunnelinterface", "").toString();
+	ba = sText.toUtf8();
+	if(strlen(ba.data()) != 0) {
+		config->tunnel_ifname = strdup(ba.data());
+	} else {
+		config->tunnel_ifname = NULL;
 	}
 
 	config->cpu_idle = 0;
@@ -296,6 +306,7 @@ config_save(Config *config)
 	case NetworkType_NAT:              sprintf(s, "nat"); break;
 	case NetworkType_EthernetBridging: sprintf(s, "ethernetbridging"); break;
 	case NetworkType_IPTunnelling:     sprintf(s, "iptunnelling"); break;
+	case NetworkType_IPTunnellingTap:  sprintf(s, "iptunnellingtap"); break;
 	}
 	settings.setValue("network_type", s);
 
@@ -318,6 +329,11 @@ config_save(Config *config)
 		settings.setValue("bridgename", config->bridgename);
 	} else {
 		settings.setValue("bridgename", "");
+	}
+	if (config->tunnel_ifname) {
+		settings.setValue("tunnelinterface", config->tunnel_ifname);
+	} else {
+		settings.setValue("tunnelinterface", "");
 	}
 
 	settings.setValue("cpu_idle", config->cpu_idle);

@@ -87,6 +87,8 @@ typedef enum {
 	NetworkType_NAT,
 	NetworkType_EthernetBridging,
 	NetworkType_IPTunnelling,
+	NetworkType_IPTunnellingTap,	/**< IP tunnelling onto a pre-created,
+	                                     user-owned persistent TAP (unprivileged) */
 } NetworkType;
 
 /** Selection of models that the emulator can emulate,
@@ -121,6 +123,10 @@ typedef struct {
 	char *ipaddress;
 	char *macaddress;
 	char *bridgename;
+	char *tunnel_ifname;	/**< NetworkType_IPTunnellingTap: name of the pre-created,
+	                             user-owned persistent TAP to attach to (runs fully
+	                             unprivileged). Unused by plain NetworkType_IPTunnelling,
+	                             which creates and configures its own tap as root. */
 	int refresh;		/**< Video refresh rate */
 	int soundenabled;
 	int cdromenabled;

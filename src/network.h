@@ -49,7 +49,7 @@ void memcpyfromhost(uint32_t dest, const void *source, uint32_t len);
 void strcpyfromhost(uint32_t dest, const char *source);
 
 int network_config_changed(NetworkType networktype, const char *bridgename,
-                           const char *ipaddress);
+                           const char *ipaddress, const char *tunnelinterface);
 int network_macaddress_parse(const char *macaddress, uint8_t hwaddr[6]);
 
 /* Functions provided by each host platform's network code */
