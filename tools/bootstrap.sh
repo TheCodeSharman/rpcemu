@@ -79,8 +79,18 @@ git -C "$TREE" config core.excludesFile "$SRC"
 # qmake writes the binary to the source-tree root; the installs' `run` scripts
 # look for it at the lab root (their ../../). Symlink rather than copy so it
 # never goes stale.
+#
+# Only link what has actually been built: a symlink to a binary that does not
+# exist reads as a broken build, and `make recompiler` is rarely run at all (the
+# dynarec is unstable -- RISC OS throws spurious errors under it; use the
+# interpreter). Re-run bootstrap after building the recompiler if you want it
+# linked. A stale link to a since-removed binary is cleaned up here too.
 for b in rpcemu-interpreter rpcemu-recompiler; do
-	ln -sfn "tree/$b" "$LAB/$b"
+	if [ -e "$TREE/$b" ]; then
+		ln -sfn "tree/$b" "$LAB/$b"
+	elif [ -L "$LAB/$b" ]; then
+		rm -f "$LAB/$b"          # dangling: the binary is gone (e.g. after `make clean`)
+	fi
 done
 
 echo
