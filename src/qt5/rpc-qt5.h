@@ -74,7 +74,7 @@ signals:
 	void mouse_hack_signal();
 	void mouse_twobutton_signal();
 	void config_updated_signal(Config *new_config, Model new_model);
-	void network_config_updated_signal(NetworkType network_type, QString bridgename, QString ipaddress);
+	void network_config_updated_signal(NetworkType network_type, QString bridgename, QString ipaddress, QString tunnelinterface);
 	void show_fullscreen_message_off_signal();
 	void nat_rule_add_signal(PortForwardRule rule);
 	void nat_rule_edit_signal(PortForwardRule old_rule, PortForwardRule new_rule);
@@ -113,7 +113,7 @@ public slots:
 	void mouse_hack();
 	void mouse_twobutton();
 	void config_updated(Config *new_config, Model new_model);
-	void network_config_updated(NetworkType network_type, QString bridgename, QString ipaddress);
+	void network_config_updated(NetworkType network_type, QString bridgename, QString ipaddress, QString tunnelinterface);
 	void show_fullscreen_message_off();
 	void nat_rule_add(PortForwardRule rule);
 	void nat_rule_edit(PortForwardRule old_rule, PortForwardRule new_rule);
