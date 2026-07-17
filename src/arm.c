@@ -565,6 +565,26 @@ arm_exec(void)
 		}
 		opcode = pccache2[PC >> 2];
 
+		/* Watchpoint: log registers each time a chosen instruction is
+		   about to execute. Set RPCEMU_WATCHPC=<hex address>. Used to
+		   watch the kernel's callback dispatch `mov pc, fp` (fc0085dc),
+		   whose address is in ROM and so is stable across RAM sizes. */
+		{
+			static uint32_t watch_pc = 0xffffffff;
+			static int watch_hits = 0;
+			if (watch_pc == 0xffffffff) {
+				const char *e = getenv("RPCEMU_WATCHPC");
+				watch_pc = e ? (uint32_t) strtoul(e, NULL, 16) : 0;
+			}
+			if (watch_pc != 0 && (arm.reg[15] & 0x3fffffc) == (watch_pc & 0x3fffffc)
+			    && watch_hits < 12) {
+				watch_hits++;
+				rpclog("WATCH #%d pc=%08x opcode=%08x r0=%08x fp(r11)=%08x ip(r12)=%08x sl=%08x sp=%08x lr=%08x\n",
+				       watch_hits, watch_pc, opcode, arm.reg[0], arm.reg[11],
+				       arm.reg[12], arm.reg[10], arm.reg[13], arm.reg[14]);
+			}
+		}
+
 		if (flaglookup[opcode >> 28][(*pcpsr) >> 28]) {
 			if (arm.arch_v4) {
 				if ((opcode & 0xe0000f0) == 0xb0) {
@@ -1871,6 +1891,24 @@ skip:
 
 			if (arm.event & 0x40) {
 				// Data Abort
+				/* Dump the register state of the first few data aborts.
+				   The aborting instruction's own registers are still live
+				   here, which is what identifies where a wild PC came
+				   from -- lr in particular still holds the return address
+				   planted by whatever dispatched to it. */
+				{
+					static int abort_dumps = 0;
+					if (abort_dumps < 4) {
+						abort_dumps++;
+						rpclog("DATAABORT #%d at pc=%08x\n", abort_dumps,
+						       (arm.reg[15] & 0x3fffffc) - 8);
+						for (int i = 0; i < 16; i += 4) {
+							rpclog("  r%-2d=%08x r%-2d=%08x r%-2d=%08x r%-2d=%08x\n",
+							       i, arm.reg[i], i+1, arm.reg[i+1],
+							       i+2, arm.reg[i+2], i+3, arm.reg[i+3]);
+						}
+					}
+				}
 				exception(ABORT, 0x14, 0);
 				arm.event &= ~0x40u;
 			} else if ((arm.event & 2) && !(arm.reg[16] & 0x40)) {
