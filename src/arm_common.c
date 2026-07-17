@@ -650,6 +650,20 @@ opSWI(uint32_t opcode)
 		       arm.reg[0], arm.reg[1], arm.reg[2],
 		       arm.reg[10], arm.reg[11], arm.reg[13], arm.reg[14],
 		       arm.reg[cpsr] & 0x1f);
+		/* When a tag reports a _kernel_oserror *, print the error block:
+		   errnum then the message. Knowing Podule_ReadInfo returns &500
+		   is much less useful than knowing what &500 says. */
+		if ((arm.reg[0] == 13 || arm.reg[0] == 14) && arm.reg[1] != 0) {
+			char msg[128];
+			unsigned i;
+			for (i = 0; i < sizeof(msg) - 1; i++) {
+				msg[i] = (char) mem_read8(arm.reg[1] + 4 + i);
+				if (msg[i] == '\0')
+					break;
+			}
+			msg[i] = '\0';
+			rpclog("  error &%x: \"%s\"\n", mem_read32(arm.reg[1]), msg);
+		}
 	}
 #ifdef RPCEMU_NETWORKING
 	else if (swinum == ARCEM_SWI_NETWORK) {
