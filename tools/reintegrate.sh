@@ -85,5 +85,22 @@ done
 
 echo
 echo "Rebuilt '${INTEGRATION}' = ${BASE} + ${#FEATURES[@]} squashed feature(s)."
+echo
+echo "!! The RISC OS module binaries in netroms/ are NOT rebuilt by this script,"
+echo "!! and this rebuild has just DISCARDED any previous rebuild of them (it"
+echo "!! resets to ${BASE}). They are build artifacts: feature branches carry only"
+echo "!! the sources, because a binary cannot be composed by merging -- two"
+echo "!! branches shipping one would conflict, and neither's would hold the"
+echo "!! other's fix. So they live on '${INTEGRATION}' only, and are now STALE."
+echo "!!"
+echo "!! If any riscos-progs/ source changed, rebuild before publishing (needs a"
+echo "!! booted guest with the ROOL DDE -- see docs/dde-build.md):"
+echo "!!"
+echo "!!     cp -a riscos-progs/EtherRPCEm installs/riscos-530/hostfs/Build/EtherRPCEm"
+echo "!!     (cd installs/riscos-530 && ./run) &"
+echo "!!     tools/dde/dde-amu.sh installs/riscos-530 Build.EtherRPCEm"
+echo "!!     cp installs/riscos-530/hostfs/Build/EtherRPCEm/EtherRPCEm,ffa netroms/"
+echo "!!     git commit netroms/EtherRPCEm,ffa -m 'netroms: rebuild EtherRPCEm'"
+echo
 echo "Review, then publish with:"
 echo "    git push --force-with-lease origin ${INTEGRATION}"
