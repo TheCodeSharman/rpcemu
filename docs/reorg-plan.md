@@ -80,9 +80,10 @@ patch, with nothing to subtract.
 2. **A separate `rpcemu-lab` repo**, with the source repo cloned inside it.
    Cleaner conceptually; costs a second repo and remote to keep in step.
 
-Prefer (1) — it is a strictly smaller change and `meta` already proves the
-orphan-branch pattern works here. Not a submodule either way: submodules pin a
-SHA, and this workflow switches `src/` between branches constantly.
+**Decided: (1), the orphan `lab` branch.** It is a strictly smaller change and
+`meta` already proves the orphan-branch pattern works here. Not a submodule
+either way: submodules pin a SHA, and this workflow switches `src/` between
+branches constantly.
 
 ## What this fixes for free
 
@@ -112,6 +113,50 @@ SHA, and this workflow switches `src/` between branches constantly.
 but exists to serve the harness. Keep it a feature; the harness depends on
 `integration` having it, which it already documents.
 
+## Decided: `.gitignore` — the source tree commits none at all
+
+**Upstream ships no `.gitignore`.** The entire file was invented by `base`, so
+none of it is upstream's to keep. `upstream` and every `feature/*` will therefore
+carry **no `.gitignore`**, and the rules move to the lab as a committed
+`gitignore-src`, wired in per-clone by `bootstrap.sh`:
+
+```sh
+git -C src config core.excludesFile "$LAB/gitignore-src"   # absolute path
+```
+
+This removes the ambiguity the earlier draft flagged, rather than splitting the
+file: `git diff upstream feature/X` loses the ignore noise for good, and there is
+nothing left to drift back onto a feature branch.
+
+**Ignore rules are NOT transitive — verified, not assumed.** A `.gitignore` in
+the lab root has *no* effect on `src/`: git never crosses a repository boundary,
+and a nested worktree is its own root. Tested — the artifact shows as `?? foo.o`
+and `check-ignore` exits 1. Only two mechanisms reach into `src/`, and both were
+tested against the real shape (orphan branch + nested worktree, across a branch
+switch):
+
+| Mechanism | Rules live in | Verdict |
+| --- | --- | --- |
+| `$GIT_COMMON_DIR/info/exclude` | an uncommitted copy | works; rules unversioned |
+| **`core.excludesFile` → lab file** | **a committed lab file** | **use this** |
+
+Both survive `src/` switching branches (`core.excludesFile` lands in the shared
+repo config, so it covers every worktree).
+
+Costs, accepted:
+
+- **Not committable.** `.git/config` cannot be version-controlled, so a clone
+  without `bootstrap.sh` has *no* ignores — noisy `git status`, and `git add -A`
+  would happily commit build junk. Bootstrap becoming the mandatory entry point
+  is the mitigation (and arguably the point).
+- **Absolute path.** `core.excludesFile` is not repo-relative, so moving or
+  renaming the lab silently breaks it. Re-running `bootstrap.sh` is the fix; say
+  so in its output.
+- **Tools that parse `.gitignore` directly won't see it.** ripgrep honours
+  `core.excludesFile`; VS Code needs `search.useGlobalIgnoreFiles`. Ship that in
+  the lab's `.vscode/settings.json`. (`info/exclude` has the same limitation, so
+  this is not a reason to prefer it.)
+
 ## Migration
 
 Do it in this order; each step is verifiable and the old refs are kept until the
@@ -123,19 +168,26 @@ end.
    deleted until step 6.
 1. **Create `lab`** as an orphan branch from today's `meta`, and move the infra
    onto it — `CLAUDE.md`, `Makefile`, `devenv.nix`, `.envrc`, `tools/`, `tests/`,
-   `docs/`, `.gitignore` (the harness's own). Take each file from `base` *or* the
-   branch that currently smuggles it (`Makefile` and `CLAUDE.md` from
-   `feature/build-tooling`, which has the newest). Add `/src/` to `lab`'s
-   `.gitignore`.
+   `docs/`. Take each file from `base` *or* the branch that currently smuggles it
+   (`Makefile` and `CLAUDE.md` from `feature/build-tooling`, which has the
+   newest). `base`'s `.gitignore` becomes the lab's `gitignore-src`; the lab gets
+   its own small `.gitignore` containing `/src/` and `/installs/`.
 2. **Bootstrap script** on `lab` (`tools/bootstrap.sh`): create the nested
-   worktree at `src/`, defaulting to `integration`. Verify: `make` builds the
-   emulator, `make riscos-modules` rebuilds EtherRPCEm to `83d6da72`, `make test`
-   passes.
+   worktree at `src/` (default `integration`) and wire the ignores:
+   `git -C src config core.excludesFile "$LAB/gitignore-src"`. Make it
+   idempotent and re-runnable — it is the fix for a moved lab. Verify: `make`
+   builds the emulator, `make riscos-modules` rebuilds EtherRPCEm to `83d6da72`,
+   `make test` passes, and `git -C src status` is clean with **no** `.gitignore`
+   in the tree.
 3. **Rebase the true features onto `upstream`**, one at a time:
    `git rebase --onto upstream base feature/X`. Expect this to be clean — features
    touch `src/`/`riscos-progs/`, the infra doesn't. Verify each with
    `git diff upstream feature/X` = only that feature's delta, and build it in the
-   harness.
+   harness. Note the rebase *drops* `.gitignore` (and the rest of base's infra)
+   from each feature's ancestry rather than moving it — so until step 2's
+   `core.excludesFile` is wired, a rebased feature's `git status` will be noisy
+   with build artifacts. Wire the ignores first; do not "fix" it by re-adding a
+   `.gitignore`.
 4. **Retire the dissolved branches** (`build-tooling`, `e2e-tests`, `ide-tests`,
    `nix-flake`, `mcp-server`): close their PRs with a pointer to `lab`. Their
    content is not lost — it moved.
@@ -153,10 +205,9 @@ end.
 - **Step 6 is the loud one.** ~8 PRs get force-pushed and re-based. They survive,
   but reviewers see a rewritten diff. Cheapest now; it only gets worse — this is
   the argument for doing it soon rather than well-timed.
-- **`.gitignore` is genuinely ambiguous.** Some of it (`rpcemu-interpreter`,
-  `installs/`) is the harness's; some describes upstream's own build droppings and
-  arguably belongs in `src/`. Split it deliberately; don't let it drift back onto
-  a feature.
+- ~~`.gitignore` is genuinely ambiguous.~~ **Resolved** — upstream ships none, so
+  the source tree commits none and the rules move wholesale to the lab. See the
+  decision section above.
 - **A worktree nested inside its own repo's worktree** is supported but slightly
   unusual. `/src/` must be gitignored on `lab`, and `git-branchless` should be
   checked against it early (step 2), not at the end.
