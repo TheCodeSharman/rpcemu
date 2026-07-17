@@ -128,11 +128,19 @@ is the **only** supported entry point — the raw `src/qt5` build will not compi
 here.  (This is exactly why the old "cd src/qt5 && qmake && make" instructions
 kept failing.)
 
-**Always `make rebuild` after switching branches or running `reintegrate.sh`.**
-A `git checkout`/`merge` updates the *source* but not the *binary*, and often
-leaves source mtimes untouched — so a plain `make` sees nothing to do and
-silently keeps the **stale** binary (e.g. missing the very feature you just
-switched to).  `rebuild` does `make clean` first, forcing a full recompile.
+**The emulator is built from whatever `tree/` is checked out at.**  `make` on a
+feature branch yields an emulator with only that feature, and the lab-root
+symlink every install resolves then points at it.  The targets print the branch
+and commit for exactly that reason — `>> building from tree/ @ <ref> (<sha>)`.
+For the fully integrated build: `git -C tree checkout integration && make`.
+
+**You no longer need to remember `make rebuild` after switching branches.**  The
+Makefile records which commit the objects were built from (`tree/.built-from`)
+and cleans automatically when `tree/` has moved.  This used to be a rule you had
+to remember, and forgetting it did not give you the *old* binary — it gave you a
+**mixture of two branches**, because qmake only recompiles what changed mtime, so
+objects from the previous branch survived and got linked in.  `make rebuild` is
+still there to force a clean build.
 
 Targets: **`make`** = interpreter (`rpcemu-interpreter`, repo root);
 **`make recompiler`** = dynarec (`rpcemu-recompiler`); `make clean`.

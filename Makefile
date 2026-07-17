@@ -11,6 +11,11 @@
 #   make riscos-modules
 #                   rebuild the RISC OS modules in riscos-progs/ into netroms/,
 #                   using the ROOL DDE inside a BOOTED guest (see below)
+#
+# EVERYTHING here builds whatever tree/ is checked out at -- `make` on a feature
+# branch yields an emulator with only that feature. The targets announce the
+# branch for that reason. For the fully integrated build:
+#     git -C tree checkout integration && make
 #   make run        build + run the interpreter; defaults to native Wayland
 #                   with an automatic X11/XWayland fallback. Force a platform
 #                   with e.g. `make run QPA=xcb`.
@@ -23,6 +28,16 @@
 # the source, which is the whole point. See docs/reorg-plan.md.
 TREE   := tree
 QT5DIR := $(TREE)/src/qt5
+
+# What tree/ is currently on. The emulator is built from whatever that is, so a
+# build made while tree/ sits on one feature contains ONLY that feature -- and
+# the lab-root symlink (which every install's `run` resolves) then points at it.
+# Nothing about the binary says which branch produced it, so say it out loud.
+TREE_REF := $(shell git -C $(TREE) rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')
+TREE_SHA := $(shell git -C $(TREE) rev-parse --short HEAD 2>/dev/null || echo '?')
+# Records which commit the objects in tree/src/qt5 were built from, so a build
+# after tree/ has moved can clean first instead of silently mixing branches.
+STAMP    := $(TREE)/.built-from
 PRO    := rpcemu.pro
 JOBS   := $(shell nproc)
 # GCC 15 defaults to -std=gnu23 (C23), where bool/true/false are keywords and
@@ -54,11 +69,27 @@ all: interpreter
 # bootstrap.sh: bootstrap runs BEFORE anything is built (on a fresh clone there
 # is no binary to link), so a link made there would either dangle or be missing
 # exactly when it is first needed.
+# Auto-cleans when tree/ has moved since the last build. An incremental build
+# after a branch switch is NOT the branch you are on: qmake's Makefile recompiles
+# only what changed mtime, so objects from the previous branch survive and get
+# linked in -- a binary that is a mixture of two branches while claiming to be
+# one. (Observed: two builds of byte-identical source gave different binaries;
+# the clean build is deterministic, so the odd one out was a stale mixture.)
+# This is what the old "always make rebuild after switching branches" rule was
+# for; better to make it impossible to forget than to write it down.
 interpreter:
+	@echo ">> building from tree/ @ $(TREE_REF) ($(TREE_SHA))"
+	@if [ -f "$(STAMP)" ] && [ "$$(cat '$(STAMP)')" != "$(TREE_SHA)" ]; then \
+		echo ">> tree/ moved since the last build ($$(cat '$(STAMP)') -> $(TREE_SHA)) — cleaning first"; \
+		$(MAKE) --no-print-directory clean >/dev/null 2>&1 || true; \
+	fi
 	cd $(QT5DIR) && qmake -o Makefile QMAKE_CFLAGS+=$(CSTD) $(PRO) && $(MAKE) -j$(JOBS)
+	@echo "$(TREE_SHA)" > "$(STAMP)"
 	@ln -sfn $(TREE)/rpcemu-interpreter $(CURDIR)/rpcemu-interpreter
+	@echo ">> rpcemu-interpreter is now the $(TREE_REF) build ($(TREE_SHA))"
 
 recompiler:
+	@echo ">> building from tree/ @ $(TREE_REF) ($(TREE_SHA))"
 	cd $(QT5DIR) && qmake -o Makefile CONFIG+=dynarec QMAKE_CFLAGS+=$(CSTD) $(PRO) && $(MAKE) -j$(JOBS)
 	@ln -sfn $(TREE)/rpcemu-recompiler $(CURDIR)/rpcemu-recompiler
 
@@ -70,6 +101,7 @@ clean:
 	-cd $(QT5DIR) && [ -f Makefile ] && $(MAKE) distclean
 	$(RM) $(TREE)/rpcemu-interpreter $(TREE)/rpcemu-recompiler
 	$(RM) $(CURDIR)/rpcemu-interpreter $(CURDIR)/rpcemu-recompiler
+	$(RM) $(STAMP)
 
 # Launch an INSTALL, not the source tree. upstream TRACKS cmos.ram and rpc.cfg,
 # so running with the source root as datadir dirties them every time (base used
@@ -78,6 +110,7 @@ clean:
 run: interpreter
 	@[ -x installs/$(NAME)/run ] || { \
 		echo "error: no install at installs/$(NAME) — make setup-install NAME=$(NAME)"; exit 1; }
+	@echo ">> launching installs/$(NAME) with the $(TREE_REF) build ($(TREE_SHA))"
 	QT_QPA_PLATFORM="$(QPA)" RPCEMU=$(CURDIR)/$(TREE)/rpcemu-interpreter installs/$(NAME)/run
 
 # Download + assemble a local RISC OS install under installs/$(NAME)/ (gitignored):
@@ -138,4 +171,4 @@ riscos-modules: rpcemu-run
 		cp "$(DDE_INSTALL)/hostfs/Build/$$m/$$m,ffa" "$(TREE)/netroms/$$m,ffa" || exit 1; \
 		echo "    -> $(TREE)/netroms/$$m,ffa"; \
 	done
-	@echo "Rebuilt: $(RISCOS_MODULES). Commit netroms/ in $(TREE)/ on integration."
+	@echo "Rebuilt: $(RISCOS_MODULES) from tree/ @ $(TREE_REF). Commit netroms/ in $(TREE)/ on integration."

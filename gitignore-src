@@ -38,6 +38,10 @@ ui_*.h
 # --- Runtime-generated files ---
 rpclog.txt
 
+# Which commit the current objects were built from (the lab's Makefile writes
+# it, to auto-clean when tree/ moves). Never upstream's.
+/.built-from
+
 # --- Local ROM and hard-disc images (large / copyrighted — never commit) ---
 /roms/*.rom
 *.hdf
