@@ -83,48 +83,42 @@ src/tools/rpcemu-run --socket installs/riscos-530/hostcmd.sock -- cc
   project's `o/` as `stubsg`, rather than patching the Makefile or the DDE.
   (`stubsg` is plausibly a debug-enabled stubs from the full RISC OS source
   tree's CLib build — the shipped `EtherRPCEm` is ~3 KB larger than ours.)
-- **`amu` cannot spawn `cc` over HostCmd — UNRESOLVED.** `amu` runs `cmhg`,
-  `objasm`, `bin2c` and `Link` fine, but when it reaches `cc` (by far the
-  largest tool, ~420 KB) it dies with:
+- **`amu` needs its `WimpSlot` in the *same* `OS_CLI` — solved, but the trap is
+  easy to fall back into.** `amu` runs `cmhg`, `objasm`, `bin2c` and `Link` in
+  whatever slot the desktop leaves, but when it reaches `cc` (by far the largest
+  tool, ~420 KB) there is no room for both and it dies with:
 
   ```
   cc -depend !Depend -IC: -throwback -zM -Wp -c -o o.Module c.Module
   AMU: *** No writable memory at this address ***
   ```
 
-  The **identical** `cc` command run directly over HostCmd works. So the tools
-  and paths are right; `amu` + `cc` simply do not both fit in the application
-  space a HostCmd command gets. Ruled out: it is *not* a missing `DDEUtils`
-  (the install's `!System` already has 1.75, and loading it explicitly does not
-  help), and `WimpSlot` (plain, `-min/-max`, `-next`) makes no difference.
-  The DDE itself runs `amu` via the FrontEnd module inside a **TaskWindow** with
-  a `1024k` slot (`Apps/DDE/!AMU/Desc`: `wimpslot 1024k`, `-desktop`), so that is
-  the environment it is designed for. But that is *not* the explanation, and it
-  is not available to us either: a TaskWindow is still ordinary application
-  space at `&8000` — a Wimp task with its own slot, not a different memory model
-  — and trying to start one over HostCmd fails outright:
+  It is an ordinary application-slot shortage: `WimpSlot -min 1024k` before
+  `amu` fixes it, and that is all `dde-amu.sh` does. The catch is that **each
+  `rpcemu-run` command is its own `OS_CLI`**, so a `WimpSlot` issued as a
+  separate command has already lapsed by the time `amu` starts — which is why an
+  earlier investigation measured "`WimpSlot` makes no difference" and wrongly
+  concluded the slot was not the problem. Both must go in one `OS_CLI`, so
+  `dde-amu.sh` writes a small Obey file:
 
   ```
-  TaskWindow "amu" -wimpslot 1024k -quit
-  Window Manager is currently in use
+  WimpSlot -min 1024k
+  Dir HostFS::HostFS.$.Build.EtherRPCEm
+  amu
   ```
 
-  because HostCmd issues `OS_CLI` from a module while the desktop is running.
-  Worth trying next: a machine that boots to the **command line** rather than the
-  desktop, which is how you would build from the CLI on real hardware — then
-  application space is not some Wimp task's slot.
+  Override the slot with `DDE_WIMPSLOT=2048k` if a project needs more. 1024k is
+  what the DDE's own `!AMU` asks for (`Apps/DDE/!AMU/Desc`: `wimpslot 1024k`).
 
-  **Working recipe until this is solved** — run `cc` yourself, then let `amu`
-  do the rest (it then finds `o.Module` up to date and proceeds to `Link`):
+  No TaskWindow is needed (`TaskWindow` fails over HostCmd anyway — "Window
+  Manager is currently in use", because HostCmd issues `OS_CLI` from a module
+  while the desktop is running), and neither is a command-line boot. Also *not*
+  the cause: a missing `DDEUtils` (the install's `!System` already has 1.75).
 
-  ```bash
-  RUN="src/tools/rpcemu-run --socket installs/riscos-530/hostcmd.sock --"
-  $RUN Dir HostFS::HostFS.\$.Build.EtherRPCEm
-  $RUN cc -depend !Depend -IC: -throwback -zM -Wp -c -o o.Module c.Module
-  tools/dde/dde-amu.sh installs/riscos-530 Build.EtherRPCEm
-  ```
-
-  This is how the verified `EtherRPCEm` build below was produced.
+  Do **not** work around this by running `cc` by hand and letting `amu` pick up
+  the rest. It produces a byte-identical module, so it looks like it works, but
+  it is no longer a Makefile build — it skips exactly the step most likely to
+  break and silently stops testing the dependency rules.
 - **The DDE's `Developer/!System` does not need merging** into a machine built
   by `tools/setup-install.sh`. Verified: every module it carries is already
   present at an equal-or-newer version (`DDEUtils 1.75 == 1.75`), and its
@@ -145,16 +139,20 @@ src/tools/rpcemu-run --socket installs/riscos-530/hostcmd.sock -- cc
 
 ```bash
 cp -a riscos-progs/EtherRPCEm installs/riscos-530/hostfs/Build/EtherRPCEm
-# cc by hand (see the amu gotcha above), then amu for cmhg/objasm/Link:
-RUN="src/tools/rpcemu-run --socket installs/riscos-530/hostcmd.sock --"
-$RUN Dir HostFS::HostFS.$.Build.EtherRPCEm
-$RUN cc -depend !Depend -IC: -throwback -zM -Wp -c -o o.Module c.Module
+(cd installs/riscos-530 && ./run) &                  # boot; creates hostcmd.sock
 tools/dde/dde-amu.sh installs/riscos-530 Build.EtherRPCEm
-cp installs/riscos-530/hostfs/Build/EtherRPCEm/EtherRPCEm,ffa netroms/
+cp installs/riscos-530/hostfs/Build/EtherRPCEm/EtherRPCEm,ffa installs/riscos-530/netroms/
 ```
+
+That is the whole build: `amu` drives the project's own Makefile end to end
+(`cmhg`, `objasm`, `bin2c`, `cc`, `Link`).
 
 Verified: DDE31d rebuilds `EtherRPCEm 1.05` from unmodified source, and the
 result is **behaviourally identical** to the shipped `netroms/EtherRPCEm,ffa` —
 including reproducing the RISC OS 5.30 boot data abort at `&FC16AAB8` that only
 appears below 256 MB. That equivalence is the point: it makes a change to the
 driver a controlled experiment.
+
+It has since been used in anger: it produced the `s/errors` fix for the bogus
+SWI error pointer, and the rebuilt module was confirmed at runtime to return
+`&20E16` "Invalid argument" from its real block.

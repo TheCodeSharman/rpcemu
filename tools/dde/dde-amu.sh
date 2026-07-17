@@ -46,6 +46,19 @@ if [ ! -f "$STUBS" ] && [ -d "$(dirname "$STUBS")" ]; then
 	[ -f "$SRC" ] && { cp "$SRC" "$STUBS"; echo "note: provided o.stubsg (= APCS-32 o.stubs) for this project"; }
 fi
 
-ro Dir "$P" >/dev/null
-echo "=== amu $* in $P ==="
-ro amu "$@"
+# Run amu via an Obey file rather than as a bare command, so that WimpSlot and
+# amu land in the *same* OS_CLI. Each rpcemu-run command is its own OS_CLI, so a
+# WimpSlot issued as a separate command is gone again before amu starts -- amu
+# then inherits whatever slot the desktop left, which fits amu plus cmhg/objasm/
+# Link but not amu plus cc (~420K), and cc dies with "No writable memory at this
+# address". The DDE's own !AMU asks for the same 1024k (Apps/DDE/!AMU/Desc).
+SLOT=${DDE_WIMPSLOT:-1024k}
+OBEY="$INSTALL/hostfs/ddeamu,feb"
+{
+	echo "WimpSlot -min $SLOT"
+	echo "Dir $P"
+	echo "amu $*"
+} > "$OBEY"
+
+echo "=== amu $* in $P (WimpSlot $SLOT) ==="
+ro Obey "HostFS::HostFS.\$.ddeamu"
