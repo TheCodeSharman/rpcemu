@@ -2,15 +2,22 @@
 #
 # Rebuild the integration branch from scratch:
 #
-#     integration  =  base  +  one squashed commit per feature branch
+#     integration  =  upstream  +  one squashed commit per feature branch
 #
-# `upstream` is a PRISTINE RPCEmu mirror; `base` = upstream + our dev/build infra
-# (.gitignore, Makefile, devenv, CLAUDE.md, this script). Feature branches sit on
-# `base`, so a feature's mailable-upstream patch is `git diff base feature/X`.
+# `upstream` is a PRISTINE RPCEmu mirror. Feature branches sit DIRECTLY on it, so
+# a feature's mailable-upstream patch is exactly `git diff upstream feature/X` —
+# nothing to subtract. The build infrastructure is not in this history at all: it
+# lives on the orphan `lab` branch (this script included), outside the source it
+# builds, with the source checked out as a nested worktree at tree/. That is why
+# `base` is gone. See docs/reorg-plan.md.
 #
-# The integration branch is DERIVED — the sources of truth are the `base`
-# branch and the `feature/*` branches.  This regenerates its history, so the
-# result is force-pushed:
+# Run it from the LAB, against tree/:
+#
+#     git -C tree checkout integration && tools/reintegrate.sh
+#
+# The integration branch is DERIVED — the sources of truth are `upstream` and the
+# `feature/*` branches.  This regenerates its history, so the result is
+# force-pushed:
 #
 #     git push --force-with-lease origin integration
 #
@@ -29,26 +36,19 @@
 # integration pass here yet fail for everyone else.
 set -euo pipefail
 
-BASE=base
+BASE=upstream
 INTEGRATION=integration
 
 # "branch:squash commit message".  Order matters only when features conflict.
 FEATURES=(
-  "feature/build-tooling:Build tooling: setup-install.sh + riscos-boot-build + CMOS template"
   "feature/vram-honesty:VRAM honesty: authentic VRAM sizes + 8 MB OS-patch option"
   "feature/fullscreen-mouse-map:Full-screen mousehack: map host pointer instead of warping (Wayland-safe)"
   "feature/ide-fix:IDE fix: LBA-addressing/data-loss fix + real CHS & LBA disc-size reporting"
   "feature/etherrpcem-podule-fix:EtherRPCEm: fix networking at every RAM size except 256MB"
   "feature/etherrpcem-errorptr-fix:EtherRPCEm: fix the bogus error pointer returned by every SWI"
   "feature/iptunnel-persistent-tap:IPTunnelling: attach to a pre-created persistent TAP (unprivileged)"
-  "feature/nix-flake:Nix flake: udp-broadcast-relay-redux, freeway-net helper, rpcemu-freeway module"
   "feature/spork-nat-broadcast-relay:NAT broadcast relay: in-process Access+/ShareFS/Freeway over SLiRP"
   "feature/spork-hostcmd:HostCmd: drive the RISC OS command line from the host (+ rpcemu-run, MCP-ready)"
-  "feature/spork-mcp-server:MCP server: drive a RISC OS guest from an MCP client (riscos_run + HostFS file tools)"
-  "feature/e2e-tests:E2E tests: pytest suite exercising the HostCmd + MCP agent-drive stack"
-  # must follow feature/e2e-tests: stacked on it to reuse its conftest.py
-  "feature/etherrpcem-tests:EtherRPCEm e2e tests: driver across RAM sizes (8/32/256MB)"
-  "feature/ide-tests:IDE unit tests: Criterion regression tests for the addressing/data-loss fix"
 )
 
 # Refuse to run with a dirty (tracked) working tree.
@@ -96,9 +96,9 @@ echo "!!"
 echo "!! If any riscos-progs/ source changed, rebuild before publishing (needs a"
 echo "!! guest booted to the desktop with the ROOL DDE -- see docs/dde-build.md):"
 echo "!!"
-echo "!!     (cd installs/riscos-530 && ./run) &"
-echo "!!     make riscos-modules"
-echo "!!     git commit netroms -m 'netroms: rebuild EtherRPCEm'"
+echo "!!     (cd ../installs/riscos-530 && ./run) &     # from the lab: installs/..."
+echo "!!     make riscos-modules                       # run in the LAB"
+echo "!!     git -C tree commit netroms -m 'netroms: rebuild EtherRPCEm'"
 echo
 echo "Review, then publish with:"
 echo "    git push --force-with-lease origin ${INTEGRATION}"
