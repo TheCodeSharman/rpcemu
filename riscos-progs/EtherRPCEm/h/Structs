@@ -49,6 +49,7 @@ typedef struct {
 	dci4_mbctl	*mbctl;		///< mbuf manager linkage
 	Dib		base_dib;	///< device info block
 	unsigned char	dev_addr[6];	///< Ethernet hardware address
+	int		podule_num;	///< our expansion card number
 	int		flags;
 	ClaimBuf	*claims;	///< linked list of all claims.
 
