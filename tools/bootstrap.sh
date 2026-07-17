@@ -75,21 +75,15 @@ fi
 #     that. Absolute path, so it must be rewritten if the lab ever moves.
 git -C "$TREE" config core.excludesFile "$SRC"
 
-# --- 3. the built emulator, where the installs expect it -------------------
-# qmake writes the binary to the source-tree root; the installs' `run` scripts
-# look for it at the lab root (their ../../). Symlink rather than copy so it
-# never goes stale.
-#
-# Only link what has actually been built: a symlink to a binary that does not
-# exist reads as a broken build, and `make recompiler` is rarely run at all (the
-# dynarec is unstable -- RISC OS throws spurious errors under it; use the
-# interpreter). Re-run bootstrap after building the recompiler if you want it
-# linked. A stale link to a since-removed binary is cleaned up here too.
+# --- 3. tidy stale emulator symlinks --------------------------------------
+# The lab-root rpcemu-interpreter symlink (which the installs' `run` scripts
+# resolve via ../../) is created by the Makefile target that BUILDS the binary,
+# not here: bootstrap runs before anything is built, so there is nothing to link
+# yet on a fresh clone. All this does is clear a link left dangling by a moved
+# or cleaned tree; `make` recreates it.
 for b in rpcemu-interpreter rpcemu-recompiler; do
-	if [ -e "$TREE/$b" ]; then
-		ln -sfn "tree/$b" "$LAB/$b"
-	elif [ -L "$LAB/$b" ]; then
-		rm -f "$LAB/$b"          # dangling: the binary is gone (e.g. after `make clean`)
+	if [ -L "$LAB/$b" ] && [ ! -e "$LAB/$b" ]; then
+		rm -f "$LAB/$b"
 	fi
 done
 
@@ -97,6 +91,8 @@ echo
 echo "lab      : $LAB"
 echo "tree     : $TREE  ($(git -C "$TREE" rev-parse --abbrev-ref HEAD))"
 echo "ignores  : tree/.gitignore (generated, self-ignoring) + core.excludesFile -> gitignore-src"
+echo
+echo "Next     : make            # builds tree/rpcemu-interpreter and links it here"
 echo
 echo "Verify with:  git -C tree status --porcelain      # should be empty"
 echo "Switch tree:  git -C tree checkout <branch>       # ignores follow automatically"

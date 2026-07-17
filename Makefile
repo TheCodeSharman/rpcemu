@@ -46,11 +46,21 @@ RISCOS_MODULES ?= EtherRPCEm
 
 all: interpreter
 
+# qmake writes the binary to the SOURCE-TREE root (rpcemu.pro: DESTDIR = ../..),
+# i.e. $(TREE)/rpcemu-interpreter. The installs' `run` scripts resolve
+# ../../rpcemu-interpreter, which lands at the LAB root -- so link it there.
+#
+# The link is made HERE, by the target that produces the binary, and not by
+# bootstrap.sh: bootstrap runs BEFORE anything is built (on a fresh clone there
+# is no binary to link), so a link made there would either dangle or be missing
+# exactly when it is first needed.
 interpreter:
 	cd $(QT5DIR) && qmake -o Makefile QMAKE_CFLAGS+=$(CSTD) $(PRO) && $(MAKE) -j$(JOBS)
+	@ln -sfn $(TREE)/rpcemu-interpreter $(CURDIR)/rpcemu-interpreter
 
 recompiler:
 	cd $(QT5DIR) && qmake -o Makefile CONFIG+=dynarec QMAKE_CFLAGS+=$(CSTD) $(PRO) && $(MAKE) -j$(JOBS)
+	@ln -sfn $(TREE)/rpcemu-recompiler $(CURDIR)/rpcemu-recompiler
 
 rebuild:
 	$(MAKE) clean
@@ -59,6 +69,7 @@ rebuild:
 clean:
 	-cd $(QT5DIR) && [ -f Makefile ] && $(MAKE) distclean
 	$(RM) $(TREE)/rpcemu-interpreter $(TREE)/rpcemu-recompiler
+	$(RM) $(CURDIR)/rpcemu-interpreter $(CURDIR)/rpcemu-recompiler
 
 # Launch an INSTALL, not the source tree. upstream TRACKS cmos.ram and rpc.cfg,
 # so running with the source root as datadir dirties them every time (base used
