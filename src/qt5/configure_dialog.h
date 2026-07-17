@@ -51,6 +51,8 @@ private slots:
 	void dialog_accepted();
 	void dialog_rejected();
 
+	void update_vram_availability();
+
 private:
 	void applyConfig();
 
@@ -65,9 +67,13 @@ private:
 	QGroupBox *mem_group_box;
 
 	QButtonGroup *vram_group;
-	QRadioButton *vram_0, *vram_2;
+	QRadioButton *vram_0, *vram_1, *vram_2, *vram_4;
 	QVBoxLayout *vram_vbox;
 	QGroupBox *vram_group_box;
+
+	QCheckBox *patch_8mb_checkbox;
+	QVBoxLayout *patch_vbox;
+	QGroupBox *patch_group_box;
 
 	QCheckBox *sound_checkbox;
 
