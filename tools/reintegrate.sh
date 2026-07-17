@@ -39,6 +39,20 @@ set -euo pipefail
 BASE=upstream
 INTEGRATION=integration
 
+# Operate on the SOURCE worktree, not the lab. This script lives on `lab`, which
+# is not a branch of the source and must never be checked out away from — but its
+# git commands are plain `git`, so without this they would act on whatever
+# directory you happened to run it from. Running it at the lab root would mean
+# `git checkout -B integration upstream` ON THE LAB, replacing the harness in the
+# working directory with the source tree. (git happens to refuse today, but only
+# because integration is usually already checked out in tree/ — that is luck, not
+# a safeguard: if tree/ were on a feature branch it would go straight through.)
+LAB="$(cd "$(dirname "$0")/.." && pwd)"
+TREE="${RPCEMU_TREE:-$LAB/tree}"
+[ -e "$TREE/.git" ] || {
+  echo "error: no source worktree at $TREE — run tools/bootstrap.sh" >&2; exit 1; }
+cd "$TREE"
+
 # "branch:squash commit message".  Order matters only when features conflict.
 FEATURES=(
   "feature/vram-honesty:VRAM honesty: authentic VRAM sizes + 8 MB OS-patch option"
