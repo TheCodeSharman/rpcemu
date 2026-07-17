@@ -45,12 +45,15 @@ void callbackide(void);
 #define DRQ_STAT		0x08 /* Data request */
 #define READY_STAT		0x40
 #define BUSY_STAT		0x80
+#define DRQ_READY_STAT		(DRQ_STAT | READY_STAT)
 
 /* Bits of 'error' */
 #define ABRT_ERR		0x04 /* Command aborted */
 #define MCR_ERR			0x08 /* Media change request */
+#define IDNF_ERR		0x10 /* ID not found / invalid sector */
 
 /* ATA Commands */
+#define WIN_NOP				0x00 /* No-operation; ATA defines it to always abort */
 #define WIN_SRST			0x08 /* ATAPI Device Reset */
 #define WIN_RECAL			0x10
 #define WIN_RESTORE			WIN_RECAL
@@ -121,13 +124,15 @@ static struct
         unsigned char fdisk;
         int pos;
         int packlen;
-        int spt[2], hpc[2];
+        int spt[2], hpc[2], cylinders[2];
+        int id_spt[2], id_hpc[2]; /* native geometry for IDENTIFY (WIN_SPECIFY mutates spt/hpc) */
         int packetstatus;
         int cdpos,cdlen;
         unsigned char asc;
         int discchanged;
         int reset;
         FILE *hdfile[2];
+        off64_t hd_filesize[2];
         int skip512[2];
         int lba_cmd[2];
         uint16_t buffer[65536];
@@ -145,6 +150,40 @@ ide_irq_lower(void)
 {
 	iomd.irqb.status &= ~IOMD_IRQB_IDE;
 	updateirqs();
+}
+
+/**
+ * Is the given drive an attached hard-disc image (as opposed to absent,
+ * or the ATAPI CD-ROM on drive 1)?
+ */
+static inline int
+ide_drive_is_hdd(int drive)
+{
+	return ide.hdfile[drive] != NULL && !(config.cdromenabled && drive == 1);
+}
+
+/**
+ * Report an "ID not found" media error to the guest for an invalid sector.
+ */
+static void
+ide_media_error_idnf(void)
+{
+	ide.atastat = READY_STAT | ERR_STAT;
+	ide.error = IDNF_ERR;
+	ide_irq_raise();
+}
+
+/**
+ * Number of addressable 512-byte logical sectors on a drive's image,
+ * excluding any 512-byte boot-block skipped at the start (skip512).
+ */
+static off64_t
+ide_hd_logical_sectors(int drive)
+{
+	if (!ide_drive_is_hdd(drive)) {
+		return 0;
+	}
+	return (ide.hd_filesize[drive] / 512) - ide.skip512[drive];
 }
 
 /**
@@ -195,22 +234,56 @@ ide_padstr8(uint8_t *buf, int buf_size, const char *src)
 }
 
 /**
- * Fill in ide.buffer with the output of the "IDENTIFY DEVICE" command
+ * Fill in ide.buffer with the output of the "IDENTIFY DEVICE" command.
+ *
+ * Models an authentic RiscPC-era (~ATA-3) drive: the real CHS geometry
+ * (native, from the image) plus 28-bit LBA capacity (words 60/61). The
+ * 48-bit LBA (ATA-6) feature bit is deliberately left clear -- the RiscPC
+ * IDE interface cannot do LBA48, and advertising it makes Partition
+ * Manager issue LBA48 disc ops that RISC OS 3.71 ADFS cannot fulfil.
  */
 static void
-ide_identify(void)
+ide_identify(int drive)
 {
+	uint32_t sectors;
+	uint32_t chs_sectors;
+	const int spt = ide.id_spt[drive];   /* native geometry, not the */
+	const int hpc = ide.id_hpc[drive];   /* WIN_SPECIFY-mutated live values */
+	const int cyl = ide.cylinders[drive];
+
 	memset(ide.buffer, 0, 512);
 
-	//ide.buffer[1] = 101; /* Cylinders */
-	ide.buffer[1] = 65535; /* Cylinders */
-	ide.buffer[3] = 16;  /* Heads */
-	ide.buffer[6] = 63;  /* Sectors */
+	chs_sectors = (uint32_t) cyl * (uint32_t) hpc * (uint32_t) spt;
+
+	sectors = (uint32_t) ide_hd_logical_sectors(drive);
+	if (sectors > 0x0FFFFFFFU) {
+		sectors = 0x0FFFFFFFU; /* 28-bit LBA maximum */
+	}
+
+	/* Model an authentic RiscPC-era (~ATA-3) IDE drive: real CHS geometry
+	   plus 28-bit LBA. We deliberately do NOT advertise the 48-bit LBA
+	   (ATA-6) feature set -- the RiscPC IDE interface is pre-ATA-1 and cannot
+	   do LBA48, and Partition Manager keys off word 83 bit 10 to pick LBA48
+	   disc ops that RISC OS 3.71's ADFS then cannot fulfil (format fails). */
+	ide.buffer[1] = (uint16_t) cyl;  /* Cylinders (real count from image size) */
+	ide.buffer[3] = (uint16_t) hpc;  /* Heads */
+	ide.buffer[6] = (uint16_t) spt;  /* Sectors per track */
 	ide_padstr((char *) (ide.buffer + 10), "", 20); /* Serial Number */
 	ide_padstr((char *) (ide.buffer + 23), "v1.0", 8); /* Firmware */
 	ide_padstr((char *) (ide.buffer + 27), "RPCEmuHD", 40); /* Model */
-//	ide.buffer[49] = 0x200; /* LBA supported */
-	ide.buffer[50] = 0x4000; /* Capabilities */
+	ide.buffer[49] = 0x0200; /* Capabilities: LBA supported (bit 9) */
+	ide.buffer[50] = 0x4000; /* Capabilities (bit 14 set per ATA spec) */
+	/* Current logical geometry valid (word 53 bit 0); words 54-58 */
+	ide.buffer[53] = 0x0001;
+	ide.buffer[54] = (uint16_t) cyl; /* Current logical cylinders */
+	ide.buffer[55] = (uint16_t) hpc; /* Current logical heads */
+	ide.buffer[56] = (uint16_t) spt; /* Current logical sectors per track */
+	ide.buffer[57] = (uint16_t) (chs_sectors & 0xFFFF);        /* Current capacity */
+	ide.buffer[58] = (uint16_t) ((chs_sectors >> 16) & 0xFFFF);
+	/* Total addressable sectors in 28-bit LBA mode (words 60/61) */
+	ide.buffer[60] = (uint16_t) (sectors & 0xFFFF);
+	ide.buffer[61] = (uint16_t) ((sectors >> 16) & 0xFFFF);
+	/* NOTE: word 83 (48-bit LBA feature) is intentionally left 0. */
 }
 
 /**
@@ -281,36 +354,65 @@ ide_atapi_mode_sense(uint32_t pos)
 }
 
 /**
- * Return the sector offset for the current register values
+ * Return the logical block address for the current register values
+ * (CHS or 28-bit LBA), without any image boot-block offset.
+ *
+ * Note: LBA vs CHS is chosen purely on the addressing mode the guest
+ * selected (lba_cmd) -- it must NOT be gated on skip512. The old code
+ * fell back to CHS whenever skip512 was set, so a boot-block image
+ * accessed via LBA computed the wrong offset and corrupted data.
  */
-static off64_t
-ide_get_sector(void)
+static uint32_t
+ide_get_lba_address(void)
 {
-	if (ide.lba_cmd[ide.drive] && !ide.skip512[ide.drive]) {
-		// LBA Addressing
+	if (ide.lba_cmd[ide.drive]) {
 		// from ATA-3 head is bits 27:24, cyl is 23:8, sec is 7:0
-		return (off64_t) ((ide.head << 24) | (ide.cylinder << 8) | ide.sector);
+		return (uint32_t) ((ide.head << 24) | (ide.cylinder << 8) | ide.sector);
 	} else {
 		// CHS Addressing
 		const int heads = ide.hpc[ide.drive];
 		const int sectors = ide.spt[ide.drive];
-		const int skip = ide.skip512[ide.drive];
 
-		return ((((off64_t) ide.cylinder * heads) + ide.head) *
-		    sectors) + (ide.sector - 1) + skip;
+		return (uint32_t) ((((off64_t) ide.cylinder * heads) + ide.head) *
+		    sectors) + (ide.sector - 1);
 	}
 }
 
 /**
- * Move to the next sector using CHS addressing
+ * Return the sector index used to locate data in the host image file.
+ * The 512-byte RISC OS boot-block offset (skip512) is applied uniformly
+ * here, on top of whichever addressing mode produced the LBA.
+ */
+static off64_t
+ide_get_sector(void)
+{
+	return (off64_t) ide_get_lba_address() + ide.skip512[ide.drive];
+}
+
+/**
+ * Is a 512-byte sector wholly within the current drive's image file?
+ * Used to reject out-of-bounds accesses with an IDNF error rather than
+ * silently zero-filling reads or extending the file on writes.
+ */
+static int
+ide_sector_byte_offset_valid(off64_t byte_offset)
+{
+	if (!ide_drive_is_hdd(ide.drive)) {
+		return 0;
+	}
+	return byte_offset >= 0 && byte_offset + 512 <= ide.hd_filesize[ide.drive];
+}
+
+/**
+ * Advance the register values to the next sector, in whichever addressing
+ * mode the guest selected (again independent of skip512).
  */
 static void
 ide_next_sector(void)
 {
-	if (ide.lba_cmd[ide.drive] && !ide.skip512[ide.drive]) {
+	if (ide.lba_cmd[ide.drive]) {
 		// LBA Addressing
-		uint32_t lba = (ide.head << 24) | (ide.cylinder << 8) | ide.sector;
-		lba++;
+		uint32_t lba = ide_get_lba_address() + 1;
 		ide.head = (lba >> 24) & 0xf;
 		ide.cylinder = (lba >> 8) & 0xffff;
 		ide.sector = lba & 0xff;
@@ -410,7 +512,24 @@ loadhd(int d, const char *filename)
 	fseeko64(ide.hdfile[d], 0, SEEK_END);
 	const off64_t filesize = ftello64(ide.hdfile[d]);
 
+	ide.hd_filesize[d] = filesize;
 	ide_image_set_spt_hpc_skip512(ide.hdfile[d], d);
+
+	/* Preserve the native geometry for IDENTIFY. A guest's WIN_SPECIFY
+	   (Initialize Drive Parameters) overwrites spt/hpc with the logical
+	   geometry it wants for addressing (RISC OS ADFS specifies 1 head), so
+	   reporting the live values in IDENTIFY would advertise a nonsensical
+	   geometry. IDENTIFY must always report the drive's native geometry. */
+	ide.id_spt[d] = ide.spt[d];
+	ide.id_hpc[d] = ide.hpc[d];
+
+	/* Report the true disc size: cylinders from the image, capped at 65535. */
+	{
+		const off64_t cyls = filesize / ((off64_t) 16 * 63 * 512);
+		ide.cylinders[d] = (cyls > 65535) ? 65535 : (int) cyls;
+		rpclog("IDE: drive %d: reporting %d cylinders (16h/63s) from image size\n",
+			d, ide.cylinders[d]);
+	}
 
 	rpclog("IDE: Loaded file '%s' as IDE disc %d, size %" PRId64 " MB (%" PRId64 ")%s\n",
 		filename,
@@ -430,6 +549,7 @@ void resetide(void)
                         fclose(ide.hdfile[d]);
                         ide.hdfile[d] = NULL;
                 }
+                ide.hd_filesize[d] = 0;
         }
 
         ide.atastat = READY_STAT;
@@ -548,6 +668,15 @@ void writeide(uint16_t addr, uint8_t val)
                 ide.error=0;
                 switch (val)
                 {
+                case WIN_NOP:
+                        /* ATA defines the NOP command (0x00) to always abort.
+                           Handle it quietly like real hardware -- it is a valid
+                           command, so no "unimplemented" warning is logged. */
+                        ide.atastat = READY_STAT | ERR_STAT;
+                        ide.error = ABRT_ERR;
+                        ide_irq_raise();
+                        return;
+
                 case WIN_SRST: /* ATAPI Device Reset */
                         ide.atastat = READY_STAT;
                         idecallback=100;
@@ -603,7 +732,16 @@ void writeide(uint16_t addr, uint8_t val)
                         ide.pos=0;
                         return;
                 }
-                fatal("Bad IDE command %02X\n", val);
+                /* Unimplemented command. Real IDE hardware aborts it (ERR set,
+                   ABRT in the error register) rather than wedging. Never fatal()
+                   here: a guest filing system must not be able to kill the whole
+                   emulator -- e.g. Partition Manager, misled by a bogus LBA48
+                   IDENTIFY, built a 48-bit-layout ADFS_IDEUserOp block that RISC
+                   OS 3.71's ADFS mis-parsed into a spurious command 0. */
+                rpclog("IDE: unimplemented command %02X, returning ABRT\n", val);
+                ide.atastat = READY_STAT | ERR_STAT;
+                ide.error = ABRT_ERR;
+                ide_irq_raise();
                 return;
 
         case 0x3F6: /* Device control */
@@ -712,7 +850,11 @@ void callbackide(void)
         if (ide.reset)
         {
                 ide.atastat = READY_STAT;
-                ide.error=0;
+                /* Post-reset diagnostic result: 0x01 = "device 0 passed"
+                   (a real drive runs its power-on diagnostic on SRST). RISC OS 5
+                   ADFS's ProbeIDEDevices reads this and rejects the drive as
+                   absent unless it is 0x01/0x81. */
+                ide.error=1;
                 ide.secount=1;
                 ide.sector=1;
                 ide.head=0;
@@ -749,13 +891,17 @@ void callbackide(void)
                         goto abort_cmd;
                 }
                 addr = ide_get_sector() * 512;
+                if (!ide_sector_byte_offset_valid(addr)) {
+                        ide_media_error_idnf();
+                        return;
+                }
                 fseeko64(ide.hdfile[ide.drive], addr, SEEK_SET);
                 if (fread(ide.buffer, 1, 512, ide.hdfile[ide.drive]) != 512) {
-                        // Beyond current extent of file - return zero data
-                        memset(ide.buffer, 0, 512);
+                        ide_media_error_idnf();
+                        return;
                 }
                 ide.pos=0;
-                ide.atastat = DRQ_STAT;
+                ide.atastat = DRQ_READY_STAT;
                 ide_irq_raise();
                 return;
 
@@ -764,12 +910,19 @@ void callbackide(void)
                         goto abort_cmd;
                 }
                 addr = ide_get_sector() * 512;
+                if (!ide_sector_byte_offset_valid(addr)) {
+                        ide_media_error_idnf();
+                        return;
+                }
                 fseeko64(ide.hdfile[ide.drive], addr, SEEK_SET);
-                fwrite(ide.buffer, 512, 1, ide.hdfile[ide.drive]);
+                if (fwrite(ide.buffer, 512, 1, ide.hdfile[ide.drive]) != 1) {
+                        rpclog("IDE: sector write failed at offset %llu: %s\n",
+                               (unsigned long long) addr, strerror(errno));
+                }
                 ide_irq_raise();
                 ide.secount--;
                 if (ide.secount != 0) {
-                        ide.atastat = DRQ_STAT;
+                        ide.atastat = DRQ_READY_STAT;
                         ide.pos=0;
                         ide_next_sector();
                 } else {
@@ -791,11 +944,19 @@ void callbackide(void)
                         goto abort_cmd;
                 }
                 addr = ide_get_sector() * 512;
+                if (!ide_sector_byte_offset_valid(addr)) {
+                        ide_media_error_idnf();
+                        return;
+                }
                 fseeko64(ide.hdfile[ide.drive], addr, SEEK_SET);
                 memset(ide.buffer, 0, 512);
                 for (c=0;c<ide.secount;c++)
                 {
-                        fwrite(ide.buffer, 512, 1, ide.hdfile[ide.drive]);
+                        if (fwrite(ide.buffer, 512, 1, ide.hdfile[ide.drive]) != 1) {
+                                rpclog("IDE: format write failed: %s\n",
+                                       strerror(errno));
+                                break;
+                        }
                 }
                 ide.atastat = READY_STAT;
                 ide_irq_raise();
@@ -833,9 +994,9 @@ void callbackide(void)
                         ide.drive=ide.head=0;
                         goto abort_cmd;
                 }
-                ide_identify();
+                ide_identify(ide.drive);
                 ide.pos=0;
-                ide.atastat = DRQ_STAT;
+                ide.atastat = DRQ_READY_STAT;
                 ide_irq_raise();
                 return;
 
