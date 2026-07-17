@@ -1,0 +1,9 @@
+| Created by raFS V1.16 (05 May 1999), Copyright 1997-1999 Richard Atterer
+
+RMEnsure raFS 1.16 If "<raFS$RM>"="" Then Error !raFS hasn�t been seen by the Filer � cannot mount disc
+RMEnsure raFS 1.16 If "<Wimp$State>"="desktop" AND "<raFS$Dir>"<>"" Then Filer_Run <raFS$Dir>.!Run
+RMEnsure raFS 1.16 RMLoad <raFS$RM>
+RMEnsure UtilityModule 3.50 Set Alias$Do %%*0
+raFS:Mount <Obey$Dir> -X
+| riscos-boot-build: dropped the auto Filer_OpenDir so mounting from PackMan's
+| !Run doesn't pop a RaFS::Pkg window open on every launch.

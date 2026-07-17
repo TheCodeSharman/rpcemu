@@ -1,0 +1,5 @@
+# devenv inputs. Pinned to the same NixOS stable line the consuming
+# RiscPc project tracks (nixos-26.05); devenv.lock records exact revs.
+inputs:
+  nixpkgs:
+    url: github:NixOS/nixpkgs/nixos-26.05

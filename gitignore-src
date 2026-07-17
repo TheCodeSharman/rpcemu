@@ -1,0 +1,52 @@
+# Ignore rules for the SOURCE tree (tree/) — NOT for the lab, and NOT a .gitignore.
+#
+# tools/bootstrap.sh installs this into tree/ two ways: as a generated,
+# self-ignoring tree/.gitignore (so editors, ripgrep and friends honour it
+# natively), and as tree's core.excludesFile (a backstop, because `git clean
+# -xdf` deletes the generated file — it is itself ignored). See
+# docs/reorg-plan.md.
+#
+# Why it lives here: `upstream` and every feature branch commit NO .gitignore at
+# all, so `git diff upstream feature/X` is exactly the mailable patch with no
+# infra noise. Never commit a .gitignore into tree/.
+#
+# Build artefacts and locally-generated runtime files only. Source that upstream
+# ships (including the hand-written Makefiles under riscos-progs/) is
+# deliberately NOT ignored.
+
+# --- Qt5 / qmake build artefacts (generated in src/qt5/) ---
+/src/qt5/Makefile
+/src/qt5/Makefile.Debug
+/src/qt5/Makefile.Release
+/src/qt5/.qmake.stash
+/src/qt5/object_script.*
+/src/qt5/release/
+/src/qt5/debug/
+
+# Compiled objects and qmake-generated sources (moc_*, qrc_*, ui_*)
+*.o
+moc_*.cpp
+qrc_*.cpp
+ui_*.h
+
+# --- Built emulator binaries (qmake writes these to the source-tree root) ---
+/rpcemu-interpreter*
+/rpcemu-recompiler*
+/RPCEmu-Interpreter*
+/RPCEmu-Recompiler*
+
+# --- Runtime-generated files ---
+rpclog.txt
+
+# --- Local ROM and hard-disc images (large / copyrighted — never commit) ---
+/roms/*.rom
+*.hdf
+
+# cmos.ram and rpc.cfg are TRACKED by upstream, so they CANNOT be ignored here —
+# .gitignore has no effect on a tracked file. `base` used to delete them; a
+# branch off `upstream` does not. They are only dirtied by running the emulator
+# from the source-tree root, so don't: `make run` launches an install, whose
+# datadir is the install directory. See docs/reorg-plan.md.
+
+# Not here, deliberately, because they are the lab's and are covered by the lab's
+# own .gitignore: /installs/, /.devenv/, /.direnv/, devenv.local.*

@@ -1,0 +1,25 @@
+# The lab's own ignores. These do NOT reach into tree/ -- git never applies
+# ignore rules across a repository boundary, and tree/ is a separate worktree.
+# The source tree's rules live in gitignore-src and are installed into tree/ by
+# tools/bootstrap.sh. See docs/reorg-plan.md.
+
+# The nested source worktree (upstream | feature/* | integration).
+/tree/
+
+# Local RISC OS installs: ROM + disc + HostFS tree + config + runtime state.
+# Large, mutable, copyrighted -- never committed.
+/installs/
+
+# The built emulator, symlinked to the lab root by bootstrap.sh so the installs'
+# `run` scripts keep finding it where they always have.
+/rpcemu-interpreter
+/rpcemu-recompiler
+
+# --- devenv / direnv (local build-environment tooling) ---
+# The pinned environment IS tracked: devenv.nix, devenv.yaml, devenv.lock, .envrc.
+# Only generated runtime state and machine-local overrides are ignored.
+/.devenv/
+.devenv.flake.nix
+devenv.local.nix
+devenv.local.yaml
+/.direnv/
