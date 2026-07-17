@@ -39,6 +39,7 @@ FEATURES=(
   "feature/fullscreen-mouse-map:Full-screen mousehack: map host pointer instead of warping (Wayland-safe)"
   "feature/ide-fix:IDE fix: LBA-addressing/data-loss fix + real CHS & LBA disc-size reporting"
   "feature/etherrpcem-podule-fix:EtherRPCEm: fix networking at every RAM size except 256MB"
+  "feature/etherrpcem-errorptr-fix:EtherRPCEm: fix the bogus error pointer returned by every SWI"
   "feature/iptunnel-persistent-tap:IPTunnelling: attach to a pre-created persistent TAP (unprivileged)"
   "feature/nix-flake:Nix flake: udp-broadcast-relay-redux, freeway-net helper, rpcemu-freeway module"
   "feature/spork-nat-broadcast-relay:NAT broadcast relay: in-process Access+/ShareFS/Freeway over SLiRP"
