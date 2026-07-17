@@ -129,6 +129,44 @@ setup — RISC OS throws spurious errors under it (e.g. "no such SWI") because
 the dynarec mistranslates the instruction stream; the interpreter runs
 clean and is also the more timing-accurate of the two.
 
+### Building the RISC OS modules (`riscos-progs/`) with the DDE
+
+The `make` wrapper above builds the **emulator**.  The RISC OS modules in
+`riscos-progs/` (`EtherRPCEm`, `HostCmd`, `HostFS`, `SyncClock`, …) are a
+separate build: they need Acorn's toolchain (`cc`/Norcroft, `objasm`, `cmhg`,
+`Link`, driven by `amu`), which has no Linux port.  So we build them **inside**
+an emulated guest and drive it from the host over the HostCmd socket:
+
+```bash
+# once per install: unpack a ROOL DDE zip into the guest (recovers RISC OS filetypes)
+tools/dde/dde-setup.sh ~/path/to/'ROOL DDE31d (2024)(RISC OS Open).zip' installs/riscos-530
+
+(cd installs/riscos-530 && ./run) &            # boot; creates hostcmd.sock
+cp -a riscos-progs/EtherRPCEm installs/riscos-530/hostfs/Build/EtherRPCEm
+tools/dde/dde-amu.sh installs/riscos-530 Build.EtherRPCEm    # runs the project's Makefile
+cp installs/riscos-530/hostfs/Build/EtherRPCEm/EtherRPCEm,ffa installs/riscos-530/netroms/
+```
+
+`dde-amu.sh` runs `amu` on the project's own Makefile end to end — edit on the
+host, build on the guest, read the result on the host.
+
+- **You need ROOL DDE 30+** (DDE31d known good); it is commercial, supply your
+  own copy.  The 1998 Acorn C/C++ in the RPCEmu starter pack **will not do** —
+  its Norcroft is C89 and its stubs are 26-bit only, and RISC OS 5 is 32-bit.
+- **Build on a RISC OS 5 install** (`installs/riscos-530`); it needs
+  `poduleroms/hostcmd,ffa`.  RISC OS 3.7 cannot run DDE31 at all.
+- **Wait for the desktop** before building — `cc` gets no application slot
+  before then and fails with *"No writable memory at this address"*.
+- **Never hand-run `cc` and let `amu` do the rest.**  It yields a
+  byte-identical module, so it looks fine, but it is no longer a Makefile build
+  and skips the step most likely to break.  If `cc` fails inside `amu`, it is an
+  application-slot shortage: `dde-amu.sh` already issues `WimpSlot -min 1024k`
+  in the **same** `OS_CLI` as `amu` (via an Obey file), which is the only way it
+  sticks — every `rpcemu-run` command is its own `OS_CLI`.  Override with
+  `DDE_WIMPSLOT=2048k` if a project needs more.
+
+See **`docs/dde-build.md`** for the full detail and gotchas.
+
 ## Testing
 
 **Policy: ALL dev tooling lives in the `devenv` (`devenv.nix` on `base`) — do
