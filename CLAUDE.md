@@ -167,6 +167,26 @@ host, build on the guest, read the result on the host.
 
 See **`docs/dde-build.md`** for the full detail and gotchas.
 
+#### The built modules in `netroms/` are integration-only artifacts
+
+`netroms/*.ffa` are **build artifacts, and only `integration` carries a current
+one.**  Feature branches change `riscos-progs/` sources **only** — deliberately:
+a binary cannot be composed by merging, so if two driver-fix branches each
+shipped one they would conflict on it, and neither's binary would contain the
+other's fix.
+
+The consequence is a real trap: **`reintegrate.sh` resets to `base`, so it throws
+away the last rebuild.**  After any reintegrate that changed a `riscos-progs/`
+source, rebuild and re-commit on `integration` before publishing — the script's
+closing message gives the exact commands.  Nothing enforces this, so a stale
+`netroms/` binary is the failure mode to watch for: the *sources* look fixed
+while the module RPCEmu actually loads is not.  (It has already happened once —
+both EtherRPCEm driver fixes were source-only, and the shipped module still had
+both bugs.)
+
+`installs/<name>/netroms/` is seeded from `netroms/` by `tools/setup-install.sh`,
+so an install made from a stale tree carries the stale module too.
+
 ## Testing
 
 **Policy: ALL dev tooling lives in the `devenv` (`devenv.nix` on `base`) — do
