@@ -25,6 +25,28 @@
 #include "main_window.h"
 #include "configure_dialog.h"
 
+/**
+ * Largest authentic VRAM size (in MB) that can be fitted to a given model.
+ *
+ * The A7000/A7000+ are unified-memory machines with no VRAM at all; the
+ * Risc PC (IOMD) takes one or two VRAM packages (0/1/2 MB); Phoebe (RPC2,
+ * IOMD2) was designed for up to 4 MB.  The 8 MB option is not authentic for
+ * any model — it is the experimental OS-patch hack, gated separately.
+ */
+static unsigned
+model_max_vram(Model model)
+{
+	switch (model) {
+	case Model_A7000:
+	case Model_A7000plus:
+		return 0;
+	case Model_Phoebe:
+		return 4;
+	default:
+		return 2;
+	}
+}
+
 ConfigureDialog::ConfigureDialog(Emulator &emulator, Config *config_copy, Model *model_copy, QWidget *parent)
     : QDialog(parent),
 	emulator(emulator),
@@ -85,20 +107,39 @@ ConfigureDialog::ConfigureDialog(Emulator &emulator, Config *config_copy, Model 
 	mem_group_box = new QGroupBox("RAM");
 	mem_group_box->setLayout(mem_vbox);
 
-	// Create VRAM group
+	// Create VRAM group — authentic hardware sizes only.  The set of
+	// enabled options is constrained to those valid for the selected
+	// model in update_vram_availability().
 	vram_0 = new QRadioButton("None");
-	vram_2 = new QRadioButton("2 MB (8 MB if OS supported)");
+	vram_1 = new QRadioButton("1 MB");
+	vram_2 = new QRadioButton("2 MB");
+	vram_4 = new QRadioButton("4 MB");
 
 	vram_group = new QButtonGroup();
 	vram_group->addButton(vram_0);
+	vram_group->addButton(vram_1);
 	vram_group->addButton(vram_2);
+	vram_group->addButton(vram_4);
 
 	vram_vbox = new QVBoxLayout();
 	vram_vbox->addWidget(vram_0);
+	vram_vbox->addWidget(vram_1);
 	vram_vbox->addWidget(vram_2);
+	vram_vbox->addWidget(vram_4);
 
 	vram_group_box = new QGroupBox("VRAM");
 	vram_group_box->setLayout(vram_vbox);
+
+	// Create OS Patches group — the 8 MB VRAM hack is not authentic
+	// hardware, so it lives here rather than in the VRAM size list.
+	// When ticked it forces VRAM to 8 MB and disables the size choices.
+	patch_8mb_checkbox = new QCheckBox("Patch OS to support 8 MB VRAM");
+
+	patch_vbox = new QVBoxLayout();
+	patch_vbox->addWidget(patch_8mb_checkbox);
+
+	patch_group_box = new QGroupBox("OS Patches");
+	patch_group_box->setLayout(patch_vbox);
 
 	// Create sound checkbox
 	sound_checkbox = new QCheckBox("Sound");
@@ -125,12 +166,18 @@ ConfigureDialog::ConfigureDialog(Emulator &emulator, Config *config_copy, Model 
 	grid->addWidget(hardware_group_box, 0, 0);
 	grid->addWidget(mem_group_box, 0, 1);
 	grid->addWidget(vram_group_box, 1, 0);
-	grid->addWidget(sound_checkbox, 1, 1);
-	grid->addWidget(refresh_group_box, 2, 0, 1, 2); // span 2 columns
-	grid->addWidget(buttons_box, 3, 0, 1, 2);       // span 2 columns
+	grid->addWidget(sound_checkbox, 1, 1, Qt::AlignTop);
+	grid->addWidget(patch_group_box, 2, 0, 1, 2);   // span 2 columns
+	grid->addWidget(refresh_group_box, 3, 0, 1, 2); // span 2 columns
+	grid->addWidget(buttons_box, 4, 0, 1, 2);       // span 2 columns
 
 	// Connect actions to widgets
 	connect(refresh_slider, &QSlider::valueChanged, this, &ConfigureDialog::slider_moved);
+
+	// Re-evaluate which VRAM sizes are valid when the model changes or the
+	// 8 MB OS patch is toggled
+	connect(hardware_listwidget, &QListWidget::currentRowChanged, this, &ConfigureDialog::update_vram_availability);
+	connect(patch_8mb_checkbox, &QCheckBox::toggled, this, &ConfigureDialog::update_vram_availability);
 
 	connect(buttons_box, &QDialogButtonBox::accepted, this, &QDialog::accept);
 	connect(buttons_box, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -166,6 +213,44 @@ ConfigureDialog::slider_moved(int value)
 }
 
 /**
+ * Enable only the VRAM sizes valid for the currently-selected model, and
+ * disable the whole VRAM group while the 8 MB OS patch is active.
+ *
+ * Called when the model selection or the patch checkbox changes, and from
+ * applyConfig().
+ */
+void
+ConfigureDialog::update_vram_availability()
+{
+	const int row = hardware_listwidget->currentRow();
+	const Model model = (row >= 0) ? (Model) row : *model_copy;
+	const unsigned max_vram = model_max_vram(model);
+	const bool patched = patch_8mb_checkbox->isChecked();
+
+	// While patched, VRAM is forced to 8 MB — the size choices are moot
+	vram_group_box->setEnabled(!patched);
+	if (patched) {
+		return;
+	}
+
+	vram_0->setEnabled(true); // None is always valid
+	vram_1->setEnabled(max_vram >= 1);
+	vram_2->setEnabled(max_vram >= 2);
+	vram_4->setEnabled(max_vram >= 4);
+
+	// If the current selection is no longer valid for this model, fall
+	// back to the largest size the model does support
+	if ((vram_1->isChecked() && max_vram < 1) ||
+	    (vram_2->isChecked() && max_vram < 2) ||
+	    (vram_4->isChecked() && max_vram < 4)) {
+		if      (max_vram >= 4) vram_4->setChecked(true);
+		else if (max_vram >= 2) vram_2->setChecked(true);
+		else if (max_vram >= 1) vram_1->setChecked(true);
+		else                    vram_0->setChecked(true);
+	}
+}
+
+/**
  * User clicked OK on the Configure dialog box 
  */
 void
@@ -189,9 +274,16 @@ ConfigureDialog::dialog_accepted()
 	if(mem_128->isChecked()) new_config.mem_size = 128;
 	if(mem_256->isChecked()) new_config.mem_size = 256;
 
-	// VRAM
-	if (vram_0->isChecked()) new_config.vram_size = 0;
-	if (vram_2->isChecked()) new_config.vram_size = 8;
+	// VRAM — the 8 MB OS patch overrides the authentic size choices;
+	// otherwise honour the size the user picked
+	if (patch_8mb_checkbox->isChecked()) {
+		new_config.vram_size = 8;
+	} else {
+		if (vram_0->isChecked()) new_config.vram_size = 0;
+		if (vram_1->isChecked()) new_config.vram_size = 1;
+		if (vram_2->isChecked()) new_config.vram_size = 2;
+		if (vram_4->isChecked()) new_config.vram_size = 4;
+	}
 
 	// Sound
 	if(sound_checkbox->isChecked()) {
@@ -275,16 +367,28 @@ ConfigureDialog::applyConfig()
 
 	// VRAM
 	vram_0->setChecked(false);
+	vram_1->setChecked(false);
 	vram_2->setChecked(false);
+	vram_4->setChecked(false);
 
-	switch (config_copy->vram_size) {
-	case 0:
-		vram_0->setChecked(true);
-		break;
-	default:
-		vram_2->setChecked(true);
-		break;
+	if (config_copy->vram_size == 8) {
+		// 8 MB is the OS-patch hack, not an authentic size
+		patch_8mb_checkbox->setChecked(true);
+		vram_2->setChecked(true); // sane underlying default
+	} else {
+		patch_8mb_checkbox->setChecked(false);
+		switch (config_copy->vram_size) {
+		case 0: vram_0->setChecked(true); break;
+		case 1: vram_1->setChecked(true); break;
+		case 2: vram_2->setChecked(true); break;
+		case 4: vram_4->setChecked(true); break;
+		default: vram_2->setChecked(true); break;
+		}
 	}
+
+	// Grey out sizes the selected model can't take (and disable the whole
+	// VRAM group if the 8 MB patch is active)
+	update_vram_availability();
 
 	// Sound
 	if(config_copy->soundenabled) {
