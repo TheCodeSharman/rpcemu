@@ -23,3 +23,13 @@
 devenv.local.nix
 devenv.local.yaml
 /.direnv/
+
+# --- Legacy: this directory used to be the source tree AND the emulator's
+# datadir, so running it here left these behind. Nothing runs from the lab root
+# now (`make run` launches an install), so they are inert; kept only because
+# they are yours to delete, not mine. roms/ holds a symlink to the RiscPc dump.
+/roms/
+*.hdf
+/cmos.ram
+/rpc.cfg
+rpclog.txt

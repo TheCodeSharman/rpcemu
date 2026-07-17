@@ -8,7 +8,7 @@
 # separators, e.g. "Build.EtherRPCEm".
 #
 # Requires: the machine booted with poduleroms/hostcmd,ffa (HostCmd socket), and
-# src/tools/rpcemu-run built (`make -C src/tools`). Both come from the hostcmd
+# tree/src/tools/rpcemu-run built (`make -C tree/src/tools`). Both come from the hostcmd
 # feature; on `integration` they are present.
 set -euo pipefail
 
@@ -17,11 +17,12 @@ PROJECT=${2:?usage: dde-amu.sh <install-dir> <project> [dde-dir-name] [amu-args.
 DDEDIR=${3:-DDE31}
 shift 3 || shift $#
 
-REPO="$(cd "$(dirname "$0")/../.." && pwd)"
-RUN="$REPO/src/tools/rpcemu-run"
+REPO="$(cd "$(dirname "$0")/../.." && pwd)"          # the lab
+TREE="${RPCEMU_TREE:-$REPO/tree}"                    # the nested source worktree
+RUN="$TREE/src/tools/rpcemu-run"
 SOCK="$INSTALL/hostcmd.sock"
 
-[ -x "$RUN" ]  || { echo "error: $RUN missing -- run: make -C src/tools" >&2; exit 1; }
+[ -x "$RUN" ]  || { echo "error: $RUN missing -- run: make -C $TREE/src/tools" >&2; exit 1; }
 [ -S "$SOCK" ] || { echo "error: no HostCmd socket at $SOCK (is the machine booted?)" >&2; exit 1; }
 
 ro() { "$RUN" --socket "$SOCK" -- "$@"; }

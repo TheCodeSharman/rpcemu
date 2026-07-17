@@ -7,10 +7,13 @@
 #
 # The tests drive src/ide.c through its public register interface only, so
 # ide.c is compiled + linked as a separate translation unit (NOT #included).
-# Run from an integration checkout so ../../src/ide.c carries the fix. Needs
+# Point tree/ at an integration checkout so its src/ide.c carries the fix. Needs
 # the project devenv (gcc + criterion).
 
-ROOT   := $(abspath $(CURDIR)/../..)
+# The lab (build infra + this suite); the source under test is the nested
+# worktree at tree/, created by tools/bootstrap.sh. Override with RPCEMU_TREE.
+LAB    := $(abspath $(CURDIR)/../..)
+ROOT   := $(if $(RPCEMU_TREE),$(RPCEMU_TREE),$(LAB)/tree)
 CFLAGS := -std=gnu17 -I$(ROOT)/src
 ARGS   ?=
 

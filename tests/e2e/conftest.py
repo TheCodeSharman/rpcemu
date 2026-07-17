@@ -21,7 +21,8 @@ Providing a guest for the LIVE tests — two ways:
         RPCEMU_TEST_INSTALL=/path/to/installs/<name>
 
 Path overrides (default to the repo's built artifacts):
-  RPCEMU_RUN   — the rpcemu-run client binary (default src/tools/rpcemu-run)
+  RPCEMU_RUN   — the rpcemu-run client binary (default tree/src/tools/rpcemu-run)
+  RPCEMU_TREE  — the nested source worktree (default tree/)
   RPCEMU_MCP   — the MCP server module      (default tools/mcp/rpcemu_mcp.py)
   RPCEMU       — the emulator binary, boot mode only (default ./rpcemu-interpreter)
 """
@@ -37,14 +38,23 @@ from pathlib import Path
 
 import pytest
 
+# The lab (build infra + this suite). The source under test is a nested worktree
+# at tree/, created by tools/bootstrap.sh -- the lab is deliberately not on any
+# branch of the source. See docs/reorg-plan.md.
 REPO = Path(__file__).resolve().parents[2]
+TREE = Path(os.environ.get("RPCEMU_TREE") or str(REPO / "tree"))
 
 
 def _path_env(var: str, default: str) -> Path:
     return Path(os.environ.get(var) or str(REPO / default))
 
 
-RPCEMU_RUN = _path_env("RPCEMU_RUN", "src/tools/rpcemu-run")
+def _tree_env(var: str, default: str) -> Path:
+    return Path(os.environ.get(var) or str(TREE / default))
+
+
+# rpcemu-run and the emulator are built FROM THE SOURCE TREE, not the lab.
+RPCEMU_RUN = _tree_env("RPCEMU_RUN", "src/tools/rpcemu-run")
 MCP_MODULE = _path_env("RPCEMU_MCP", "tools/mcp/rpcemu_mcp.py")
 BOOT_TIMEOUT = float(os.environ.get("RPCEMU_BOOT_TIMEOUT", "90"))
 
@@ -118,7 +128,7 @@ def guest():
         pass
 
     env = dict(os.environ)
-    env.setdefault("RPCEMU", str(REPO / "rpcemu-interpreter"))
+    env.setdefault("RPCEMU", str(TREE / "rpcemu-interpreter"))
     proc = subprocess.Popen(
         [str(run_script)], cwd=str(install_dir), env=env,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,

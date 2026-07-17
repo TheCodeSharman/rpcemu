@@ -18,7 +18,11 @@
 # This wrapper lives on the upstream branch (git-conversion infra); it is not
 # part of upstream RPCEmu and stays out of feature-vs-upstream diffs.
 
-QT5DIR := src/qt5
+# The nested source worktree (upstream | feature/* | integration), created by
+# tools/bootstrap.sh. The lab drives it from outside; it is not on any branch of
+# the source, which is the whole point. See docs/reorg-plan.md.
+TREE   := tree
+QT5DIR := $(TREE)/src/qt5
 PRO    := rpcemu.pro
 JOBS   := $(shell nproc)
 # GCC 15 defaults to -std=gnu23 (C23), where bool/true/false are keywords and
@@ -38,7 +42,7 @@ DDE_INSTALL    ?= installs/riscos-530
 RISCOS_MODULES ?= EtherRPCEm
 
 .PHONY: all interpreter recompiler rebuild clean run setup-install \
-        test test-unit test-e2e riscos-modules
+        test test-unit test-e2e riscos-modules rpcemu-run
 
 all: interpreter
 
@@ -54,10 +58,16 @@ rebuild:
 
 clean:
 	-cd $(QT5DIR) && [ -f Makefile ] && $(MAKE) distclean
-	$(RM) rpcemu-interpreter rpcemu-recompiler
+	$(RM) $(TREE)/rpcemu-interpreter $(TREE)/rpcemu-recompiler
 
+# Launch an INSTALL, not the source tree. upstream TRACKS cmos.ram and rpc.cfg,
+# so running with the source root as datadir dirties them every time (base used
+# to delete them; a branch off upstream cannot, and ignoring a tracked file does
+# nothing). An install's datadir is the install directory, so it stays clean.
 run: interpreter
-	QT_QPA_PLATFORM="$(QPA)" ./rpcemu-interpreter
+	@[ -x installs/$(NAME)/run ] || { \
+		echo "error: no install at installs/$(NAME) — make setup-install NAME=$(NAME)"; exit 1; }
+	QT_QPA_PLATFORM="$(QPA)" RPCEMU=$(CURDIR)/$(TREE)/rpcemu-interpreter installs/$(NAME)/run
 
 # Download + assemble a local RISC OS install under installs/$(NAME)/ (gitignored):
 # ROM + HostFS tree + CMOS from the marutan 3.71 bundle, the HostFS poduleroms,
@@ -94,8 +104,13 @@ test-e2e:
 # integration after any reintegrate that touched riscos-progs/.
 #
 # Each run copies a pristine source tree in, so it is always a clean build.
-riscos-modules:
-	@[ -d tools/dde ] || { echo "error: tools/dde missing (needs feature/build-tooling)"; exit 1; }
+# The HostCmd client the DDE build and the e2e suite drive the guest through.
+# It lives in the source tree (feature/spork-hostcmd), not the lab.
+rpcemu-run:
+	@$(MAKE) --no-print-directory -C $(TREE)/src/tools
+
+riscos-modules: rpcemu-run
+	@[ -d $(TREE)/riscos-progs ] || { echo "error: no source tree at $(TREE)/ — run tools/bootstrap.sh"; exit 1; }
 	@[ -S "$(DDE_INSTALL)/hostcmd.sock" ] || { \
 		echo "error: no HostCmd socket at $(DDE_INSTALL)/hostcmd.sock"; \
 		echo "       the build machine must be booted to the desktop first:"; \
@@ -105,11 +120,11 @@ riscos-modules:
 		echo "=== building $$m ==="; \
 		rm -rf "$(DDE_INSTALL)/hostfs/Build/$$m" || exit 1; \
 		mkdir -p "$(DDE_INSTALL)/hostfs/Build" || exit 1; \
-		cp -a "riscos-progs/$$m" "$(DDE_INSTALL)/hostfs/Build/$$m" || exit 1; \
+		cp -a "$(TREE)/riscos-progs/$$m" "$(DDE_INSTALL)/hostfs/Build/$$m" || exit 1; \
 		tools/dde/dde-amu.sh "$(DDE_INSTALL)" "Build.$$m" || exit 1; \
 		[ -f "$(DDE_INSTALL)/hostfs/Build/$$m/$$m,ffa" ] || { \
 			echo "error: $$m did not build (no $$m,ffa)"; exit 1; }; \
-		cp "$(DDE_INSTALL)/hostfs/Build/$$m/$$m,ffa" "netroms/$$m,ffa" || exit 1; \
-		echo "    -> netroms/$$m,ffa"; \
+		cp "$(DDE_INSTALL)/hostfs/Build/$$m/$$m,ffa" "$(TREE)/netroms/$$m,ffa" || exit 1; \
+		echo "    -> $(TREE)/netroms/$$m,ffa"; \
 	done
-	@echo "Rebuilt: $(RISCOS_MODULES). Commit netroms/ on integration."
+	@echo "Rebuilt: $(RISCOS_MODULES). Commit netroms/ in $(TREE)/ on integration."

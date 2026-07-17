@@ -14,7 +14,7 @@
 #   rpc.cfg                       generated here from MODEL / MEM / NETWORK
 #   poduleroms/hostfs,ffa + hostfsfiler,ffa + SyncClock,ffa (+ hostcmd,ffa when
 #                                 the spork-hostcmd feature is merged)
-#                                 from this repo's riscos-progs/, so RISC OS gets
+#                                 from the source tree's riscos-progs/, so RISC OS gets
 #                                 the HostFS drive (+ its icon-bar filer)
 #   netroms/EtherRPCEm,ffa        the emulated NIC driver, so networking has a
 #                                 card to bind to
@@ -38,7 +38,9 @@
 set -euo pipefail
 
 # --- paths -------------------------------------------------------------------
-REPO="$(cd "$(dirname "$0")/.." && pwd)"                 # the rpcemu repo
+REPO="$(cd "$(dirname "$0")/.." && pwd)"                 # the lab (build infra)
+TREE="${RPCEMU_TREE:-$REPO/tree}"                        # the nested source worktree
+[ -d "$TREE/riscos-progs" ] || { echo "error: no source tree at $TREE -- run tools/bootstrap.sh" >&2; exit 1; }
 BUILDER="$REPO/tools/riscos-boot-build"                  # in-repo !Boot builder
 # ROMs are large binaries kept out of this repo. Point ROM= at one directly, or
 # set RISCPC_REPO to a sibling RiscPc checkout to pick up its roms/ by default.
@@ -188,21 +190,21 @@ fi
 # HostFS filing system + icon-bar filer (+ clock) as an extension podule ROM.
 # Without this RISC OS never presents the HostFS drive.
 mkdir -p "$INSTALL/poduleroms"
-cp "$REPO/riscos-progs/HostFS/hostfs,ffa" \
-   "$REPO/riscos-progs/HostFS/hostfsfiler,ffa" \
+cp "$TREE/riscos-progs/HostFS/hostfs,ffa" \
+   "$TREE/riscos-progs/HostFS/hostfsfiler,ffa" \
    "$INSTALL/poduleroms/"
-cp "$REPO/riscos-progs/SyncClock/SyncClock,ffa" "$INSTALL/poduleroms/" 2>/dev/null || true
+cp "$TREE/riscos-progs/SyncClock/SyncClock,ffa" "$INSTALL/poduleroms/" 2>/dev/null || true
 
 # HostCmd gateway module — lets the host drive the guest RISC OS command line
 # over a socket (used by rpcemu-run and the MCP server). Provided by the
 # spork-hostcmd feature, so it is optional here: present once that feature is
 # merged (e.g. on the integration branch), a no-op otherwise.
-cp "$REPO/riscos-progs/HostCmd/hostcmd,ffa" "$INSTALL/poduleroms/" 2>/dev/null || true
+cp "$TREE/riscos-progs/HostCmd/hostcmd,ffa" "$INSTALL/poduleroms/" 2>/dev/null || true
 
 # Emulated NIC driver — network.c loads it from netroms/ at startup to build
 # the network podule ROM; without it the guest has no network card.
 mkdir -p "$INSTALL/netroms"
-cp "$REPO/netroms/EtherRPCEm,ffa" "$INSTALL/netroms/"
+cp "$TREE/netroms/EtherRPCEm,ffa" "$INSTALL/netroms/"
 
 # Known-good HostFS-boot RiscPC CMOS (version-neutral; 3.7 can re-Configure it).
 cp "$CMOS_SRC" "$INSTALL/cmos.ram"
