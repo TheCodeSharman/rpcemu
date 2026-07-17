@@ -75,18 +75,18 @@ run: interpreter
 setup-install:
 	tools/setup-install.sh $(NAME)
 
-# Test suites. Each lives on its own feature branch, so it is only present once
-# merged (e.g. on the integration branch); a target skips cleanly if absent.
-# Delegate to the suite's own Makefile. Pass args with e.g. ARGS=--verbose.
+# Test suites. They live HERE, on the lab, so they are always present and these
+# targets no longer skip: a suite that quietly does nothing is worse than one
+# that fails. (The e2e suite skipping instead of failing when rpcemu-run moved is
+# exactly how a green run came to test nothing.) They exercise tree/, so point
+# tree/ at the branch under test. Pass args with e.g. ARGS=--verbose.
 test: test-unit test-e2e
 
 test-unit:
-	@if [ -d tests/unit ]; then $(MAKE) --no-print-directory -C tests/unit; \
-	else echo "skip test-unit: tests/unit not present (needs feature/ide-tests)"; fi
+	@$(MAKE) --no-print-directory -C tests/unit
 
 test-e2e:
-	@if [ -d tests/e2e ]; then $(MAKE) --no-print-directory -C tests/e2e; \
-	else echo "skip test-e2e: tests/e2e not present (needs feature/e2e-tests)"; fi
+	@$(MAKE) --no-print-directory -C tests/e2e
 
 # Rebuild the RISC OS modules in riscos-progs/ (EtherRPCEm, ...) into netroms/.
 #
