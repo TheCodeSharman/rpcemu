@@ -82,4 +82,6 @@ squash-merging them in any order never conflicts. `reintegrate.sh` disables
 
 Rationale and the migration that got here: [`docs/reorg-plan.md`](docs/reorg-plan.md).
 Pre-reorg refs are preserved as `archive/20260717/*` tags; `base` and `meta` are
-retired.
+retired. The design record for the branches that dissolved into this one — their
+PR descriptions, which is where this project documents the *why* — is kept in
+[`docs/archive/`](docs/archive/README.md).
