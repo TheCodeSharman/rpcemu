@@ -1,6 +1,11 @@
 DCI4_ERROR_BLOCK	EQU	0x20e00
 
-	AREA	|Asm$$data|, DATA, READONLY
+; Must NOT be READONLY. c/Module is built -zM, so Norcroft addresses every
+; extern datum as (static base + link address), where the static base maps the
+; image's RW data area onto its copy in module workspace. A READONLY area is
+; placed in the RO image instead, is never copied, and so every &ERR_* comes
+; back with the static base spuriously added to it.
+	AREA	|Asm$$data|, DATA
 
 
 	EXPORT	ERR_ENXIO
