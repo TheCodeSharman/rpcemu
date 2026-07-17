@@ -2,13 +2,15 @@
 
 # Reproducible build/run environment for the RPCEmu Qt5 interpreter.
 #
-# This file lives on the `upstream` branch (like .gitignore / CLAUDE.md /
-# tools/reintegrate.sh) so it is present on every branch — including the
-# derived `integration` branch consumers build from — yet stays OUT of the
-# `git diff upstream feature/X` upstream-submission diffs.
+# This file lives on the `lab` branch — the build infrastructure, which sits
+# OUTSIDE the source it builds (the source is a nested worktree at tree/). So it
+# is never in a feature branch and never in a `git diff upstream feature/X`
+# upstream-submission diff. direnv searches parent directories, so this
+# environment applies inside tree/ too, whatever branch tree/ is on.
 #
-# Build:  make            (top-level wrapper; pins -std=gnu17 for gcc15/C23)
-# Run:    make run        (or ./rpcemu-interpreter directly; needs a .rom in roms/)
+# Setup:  tools/bootstrap.sh   (creates tree/; idempotent, re-run any time)
+# Build:  make                 (top-level wrapper; pins -std=gnu17 for gcc15/C23)
+# Run:    make run             (launches installs/<NAME>/; NOT the source root)
 {
   name = "rpcemu";
 
@@ -71,6 +73,6 @@
   enterShell = ''
     echo "rpcemu devenv  —  qmake $(qmake -query QT_VERSION 2>/dev/null || echo '(not found)')"
     echo "  build:  make        (top-level wrapper; pins -std=gnu17 for gcc15)"
-    echo "  run:    make run     (drop a .rom into roms/ first)"
+    echo "  run:    make run     (launches an install; NAME=riscos-530 to pick)"
   '';
 }
