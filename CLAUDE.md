@@ -177,12 +177,22 @@ other's fix.
 
 The consequence is a real trap: **`reintegrate.sh` resets to `base`, so it throws
 away the last rebuild.**  After any reintegrate that changed a `riscos-progs/`
-source, rebuild and re-commit on `integration` before publishing — the script's
-closing message gives the exact commands.  Nothing enforces this, so a stale
-`netroms/` binary is the failure mode to watch for: the *sources* look fixed
-while the module RPCEmu actually loads is not.  (It has already happened once —
-both EtherRPCEm driver fixes were source-only, and the shipped module still had
-both bugs.)
+source, rebuild and re-commit **on `integration`**:
+
+```bash
+(cd installs/riscos-530 && ./run) &     # boot the build machine to the desktop
+make riscos-modules                     # -> netroms/*.ffa
+git commit netroms -m 'netroms: rebuild EtherRPCEm'
+```
+
+`make riscos-modules` builds **whatever branch is checked out** — run it on
+`integration`, the only branch with all the source fixes.  On a feature branch it
+will happily produce a module missing the *other* branches' fixes.
+
+Nothing enforces any of this, so a stale `netroms/` binary is the failure mode to
+watch for: the *sources* look fixed while the module RPCEmu actually loads is
+not.  (It has already happened once — both EtherRPCEm driver fixes were
+source-only, and the shipped module still had both bugs.)
 
 `installs/<name>/netroms/` is seeded from `netroms/` by `tools/setup-install.sh`,
 so an install made from a stale tree carries the stale module too.
