@@ -19,17 +19,15 @@
     gnumake
     pkg-config
 
-    # Qt5 — the .pro pulls in `core widgets gui multimedia`
+    # Qt5 — the .pro pulls in `core widgets gui multimedia`.
+    # qmake itself lives in the `dev` output, the libraries in the default one;
+    # both are needed, and qtmultimedia's `dev` carries the qt_lib_multimedia.pri
+    # that `QT += multimedia` resolves against.
     qt5.qtbase
+    qt5.qtbase.bin      # platform plugins (cocoa / xcb) live in the bin output
+    qt5.qtbase.dev
     qt5.qtmultimedia
-    qt5.qtwayland      # Wayland desktop; we still force xcb at runtime
-
-    # X11 — keyboard_x.c / rpc-linux.c link against libX11
-    xorg.libX11
-    xorg.libXext
-
-    # The Qt xcb platform plugin dlopens libxcb-cursor at runtime
-    xcb-util-cursor
+    qt5.qtmultimedia.dev
 
     # Test frameworks (project policy: ALL dev tooling lives here, not
     # vendored or provisioned ad-hoc per test — see CLAUDE.md)
@@ -50,25 +48,69 @@
     #
     # pytest drives the end-to-end suite in tests/e2e/ (on feature/e2e-tests).
     (python3.withPackages (ps: [ ps.mcp ps.pytest ]))
+  ]
+
+  # --- Linux-only -----------------------------------------------------------
+  # The X11/Wayland stack the Qt platform plugins need. macOS uses the cocoa
+  # plugin, which is compiled into qtbase and needs none of this.
+  ++ lib.optionals stdenv.isLinux [
+    qt5.qtwayland      # Wayland desktop; we still force xcb at runtime
+
+    # X11 — keyboard_x.c is the X11 keycode table. macOS builds
+    # keyboard_macosx.c (Carbon virtual keys) instead, so this is Linux-only.
+    xorg.libX11
+    xorg.libXext
+
+    # The Qt xcb platform plugin dlopens libxcb-cursor at runtime
+    xcb-util-cursor
+  ]
+
+  # --- macOS-only -----------------------------------------------------------
+  # qmake shells out to `xcrun` to locate the platform SDK; with none in the
+  # environment it dies with "Cannot run compiler ... unable to find sdk:
+  # 'macosx'". Taking the SDK from nixpkgs keeps the shell hermetic (no
+  # dependency on whichever Xcode happens to be installed) and pins SDK 14 —
+  # the version Qt 5.15 was tested against, so it also silences qmake's
+  # "you're using 15 ... unsupported configuration" warning.
+  ++ lib.optionals stdenv.isDarwin [
+    apple-sdk
   ];
 
   # C/C++ toolchain (gcc) + stdenv niceties
   languages.c.enable = true;
   languages.cplusplus.enable = true;
 
-  # RPCEmu is an X11 app; on a Wayland session force the xcb platform plugin
-  # (matches the fork CLAUDE.md's run note).
-  env.QT_QPA_PLATFORM = "xcb";
-
-  # Qt5 Multimedia's audio backends (ALSA/pulse) live in qtmultimedia's OWN
+  # Qt platform + plugin paths.
+  #
+  # QT_QPA_PLATFORM: on Linux RPCEmu is an X11 app, so on a Wayland session we
+  # force the xcb plugin (matches the fork CLAUDE.md's run note). macOS has
+  # exactly one platform plugin, cocoa, compiled into qtbase — setting this
+  # there could only break it, so it is Linux-only.
+  #
+  # QT_PLUGIN_PATH: Qt5 Multimedia's audio backends live in qtmultimedia's OWN
   # store path, which Qt's compiled-in (qtbase-only) plugin search never covers
   # — so in a bare devshell (no wrapQtAppsHook) QAudioOutput finds no backend
   # and RPCEmu logs "Failed to create QAudioOutput, no audio". Point
-  # QT_PLUGIN_PATH at qtmultimedia (and qtwayland) so the audio + native-Wayland
-  # plugins load; xcb still resolves from qtbase's compiled-in default path.
-  env.QT_PLUGIN_PATH =
-    "${pkgs.qt5.qtmultimedia}/lib/qt-${pkgs.qt5.qtbase.version}/plugins:" +
-    "${pkgs.qt5.qtwayland}/lib/qt-${pkgs.qt5.qtbase.version}/plugins";
+  # QT_PLUGIN_PATH at qtmultimedia (and, on Linux, qtwayland) so the audio +
+  # native-Wayland plugins load; xcb still resolves from qtbase's compiled-in
+  # default path.
+  env = {
+    QT_PLUGIN_PATH = lib.concatStringsSep ":" (
+      [
+        # The PLATFORM plugin (cocoa on macOS, xcb on Linux) is in qtbase's
+        # `bin` output, NOT the default one -- which holds only lib/ and
+        # share/. Without this Qt aborts at startup with "Could not find the
+        # Qt platform plugin \"cocoa\" in \"\"", and the abort surfaces as a
+        # macOS crash reporter dialog rather than a readable error.
+        "${pkgs.qt5.qtbase.bin}/lib/qt-${pkgs.qt5.qtbase.version}/plugins"
+        "${pkgs.qt5.qtmultimedia}/lib/qt-${pkgs.qt5.qtbase.version}/plugins"
+      ]
+      ++ lib.optional pkgs.stdenv.isLinux
+           "${pkgs.qt5.qtwayland}/lib/qt-${pkgs.qt5.qtbase.version}/plugins"
+    );
+  } // lib.optionalAttrs pkgs.stdenv.isLinux {
+    QT_QPA_PLATFORM = "xcb";
+  };
 
   enterShell = ''
     echo "rpcemu devenv  —  qmake $(qmake -query QT_VERSION 2>/dev/null || echo '(not found)')"

@@ -39,15 +39,34 @@ TREE_SHA := $(shell git -C $(TREE) rev-parse --short HEAD 2>/dev/null || echo '?
 # after tree/ has moved can clean first instead of silently mixing branches.
 STAMP    := $(TREE)/.built-from
 PRO    := rpcemu.pro
-JOBS   := $(shell nproc)
+# qmake's DESTDIR puts the binary at the source-tree root on Linux, but on
+# macOS it builds an application bundle and the executable lives inside it.
+# Everything downstream (the lab symlink, `make run`, `make clean`) needs the
+# real path, not the bundle.
+ifeq ($(shell uname -s),Darwin)
+INTERP := $(TREE)/rpcemu-interpreter.app/Contents/MacOS/rpcemu-interpreter
+RECOMP := $(TREE)/rpcemu-recompiler.app/Contents/MacOS/rpcemu-recompiler
+else
+INTERP := $(TREE)/rpcemu-interpreter
+RECOMP := $(TREE)/rpcemu-recompiler
+endif
+# nproc is coreutils (Linux); macOS has neither, so fall back to sysctl. An
+# empty JOBS would become a bare `make -j`, i.e. unbounded parallelism.
+JOBS   := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 # GCC 15 defaults to -std=gnu23 (C23), where bool/true/false are keywords and
 # upstream's hand-rolled `typedef int bool` (hostfs.c) no longer compiles. Pin
 # the C dialect to the pre-C23 default upstream built with (gcc 11-14 = gnu17)
 # so the *unmodified* upstream source builds. C-only; C++/Qt keep gcc15's default.
 CSTD   := -std=gnu17
-# Qt platform for `make run`: try native Wayland, fall back to X11 if there's
-# no Wayland compositor (or qtwayland isn't installed).
+# Qt platform for `make run`: on Linux try native Wayland, falling back to X11
+# if there's no Wayland compositor (or qtwayland isn't installed). macOS has a
+# single platform plugin, cocoa, compiled into qtbase -- forcing anything else
+# there just fails to load.
+ifeq ($(shell uname -s),Darwin)
+QPA    ?= cocoa
+else
 QPA    ?= wayland;xcb
+endif
 # Name of the local RISC OS install to create/launch under installs/<NAME>/.
 NAME   ?= riscos-371
 
@@ -85,13 +104,13 @@ interpreter:
 	fi
 	cd $(QT5DIR) && qmake -o Makefile QMAKE_CFLAGS+=$(CSTD) $(PRO) && $(MAKE) -j$(JOBS)
 	@echo "$(TREE_SHA)" > "$(STAMP)"
-	@ln -sfn $(TREE)/rpcemu-interpreter $(CURDIR)/rpcemu-interpreter
+	@ln -sfn $(INTERP) $(CURDIR)/rpcemu-interpreter
 	@echo ">> rpcemu-interpreter is now the $(TREE_REF) build ($(TREE_SHA))"
 
 recompiler:
 	@echo ">> building from tree/ @ $(TREE_REF) ($(TREE_SHA))"
 	cd $(QT5DIR) && qmake -o Makefile CONFIG+=dynarec QMAKE_CFLAGS+=$(CSTD) $(PRO) && $(MAKE) -j$(JOBS)
-	@ln -sfn $(TREE)/rpcemu-recompiler $(CURDIR)/rpcemu-recompiler
+	@ln -sfn $(RECOMP) $(CURDIR)/rpcemu-recompiler
 
 rebuild:
 	$(MAKE) clean
@@ -99,7 +118,7 @@ rebuild:
 
 clean:
 	-cd $(QT5DIR) && [ -f Makefile ] && $(MAKE) distclean
-	$(RM) $(TREE)/rpcemu-interpreter $(TREE)/rpcemu-recompiler
+	$(RM) $(INTERP) $(RECOMP)
 	$(RM) $(CURDIR)/rpcemu-interpreter $(CURDIR)/rpcemu-recompiler
 	$(RM) $(STAMP)
 
@@ -111,7 +130,7 @@ run: interpreter
 	@[ -x installs/$(NAME)/run ] || { \
 		echo "error: no install at installs/$(NAME) — make setup-install NAME=$(NAME)"; exit 1; }
 	@echo ">> launching installs/$(NAME) with the $(TREE_REF) build ($(TREE_SHA))"
-	QT_QPA_PLATFORM="$(QPA)" RPCEMU=$(CURDIR)/$(TREE)/rpcemu-interpreter installs/$(NAME)/run
+	QT_QPA_PLATFORM="$(QPA)" RPCEMU=$(CURDIR)/$(INTERP) installs/$(NAME)/run
 
 # Download + assemble a local RISC OS install under installs/$(NAME)/ (gitignored):
 # ROM + HostFS tree + CMOS from the marutan 3.71 bundle, the HostFS poduleroms,
