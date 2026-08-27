@@ -3,19 +3,21 @@
   "sources": [
     {
       "name": "HardDisc4",
-      "file": "HardDisc4.zip",
-      "url": "https://www.riscosopen.org/zipfiles/platform/common/HardDisc4.zip",
-      "sha256": "54930a3c86188ed46fd9ef7f44ede198a31ba5335dcd027f4f085c854d1e8376",
+      "file": "HardDisc4.5.30.zip",
+      "url": "https://www.riscosopen.org/zipfiles/platform/common/HardDisc4.5.30.zip",
+      "sha256": "2d0ae90df9412622950b05d1b95dbb07ed95c144213e7d677401a75c330c570e",
       "strip": "HardDisc4/",
-      "role": "disc-root: !Boot (all ROxxxHook incl. RO370Hook), Apps, Utilities. Bundles its own RO5-era !System at !Boot.Resources.!System."
+      "role": "disc-root: !Boot (all ROxxxHook incl. RO370Hook), Apps, Utilities. Bundles its own RO5-era !System at !Boot.Resources.!System.",
+      "pin": "Version-pinned deliberately. The unversioned HardDisc4.zip is ROOL's NIGHTLY BETA -- they rebuild it in place at the same URL (seen: Last-Modified 2026-08-23, breaking a hash pinned 2026-07-17), so any sha256 recorded against it expires the next time they build. HardDisc4.5.30.zip is the stable 5.30 release, unchanged since 2024-05-09, and still ships every ROxxxHook including RO370Hook. Only move this pin deliberately, never to make a failing build pass."
     },
     {
       "name": "PlingSystem",
       "file": "PlingSystem.zip",
       "url": "https://www.riscosopen.org/zipfiles/platform/common/PlingSystem.zip",
-      "sha256": "994ca936834cca036d4de39bf433c6dd8e3ee201a67033889c83cf84fa6cc7eb",
+      "sha256": "6fb11b17b2bcf0a8c3a2833d9b0edec64763ef1b3b6f5abcaa0db4aa0b99d86d",
       "strip": "",
-      "role": "System resources: disc-based module sets 310/350/360/370/400. Merged into HardDisc4's !System, newest-version-wins."
+      "role": "System resources: disc-based module sets 310/350/360/370/400. Merged into HardDisc4's !System, newest-version-wins.",
+      "pin": "Tracks ROOL's rolling build at an unversioned URL -- there is no versioned variant published for this one, unlike HardDisc4. ROOL rebuilds in place (this batch: Last-Modified 2026-08-23 06:04, which expired the previous pin), so THIS HASH WILL EXPIRE AGAIN. When it does, re-verify the download is a genuine Acorn-made zip with the expected top-level layout, then re-pin -- and record the date here. Last re-pinned 2026-08-27."
     },
     {
       "name": "PartMgr",
@@ -45,9 +47,10 @@
       "name": "MakeModes",
       "file": "BonusBinDev.zip",
       "url": "https://www.riscosopen.org/zipfiles/platform/common/BonusBinDev.zip",
-      "sha256": "20d4f21c00a425c58bbf4c71a4ed6b674d1d70cc7262cc32b7b68b26ea642554",
+      "sha256": "e4c70e8955e69a0657e4ee4e14f562b927ec34066f9b17b2f3efd3c1691094ce",
       "strip": "HardDisc4/",
-      "role": "ROOL 'Bonus binaries' (maintained). Curated placement: !MakeModes (monitor definition files) from Utilities/Developer. ROOL-maintained preferred over the dead Acorn 0.26."
+      "role": "ROOL 'Bonus binaries' (maintained). Curated placement: !MakeModes (monitor definition files) from Utilities/Developer. ROOL-maintained preferred over the dead Acorn 0.26.",
+      "pin": "Tracks ROOL's rolling build at an unversioned URL -- there is no versioned variant published for this one, unlike HardDisc4. ROOL rebuilds in place (this batch: Last-Modified 2026-08-23 06:04, which expired the previous pin), so THIS HASH WILL EXPIRE AGAIN. When it does, re-verify the download is a genuine Acorn-made zip with the expected top-level layout, then re-pin -- and record the date here. Last re-pinned 2026-08-27."
     },
     {
       "name": "AcornApps",
@@ -132,38 +135,138 @@
   ],
   "_placements_comment": "After HardDisc4 is laid down and !System merged, copy each app subtree from an extracted source (or from this repo) onto the disc. Paths are relative to each extracted source's root (post-strip). RaFS comes from this repo, already ,xxx-typed. The user-visible editors (!StrongED, !Zap) go in $.Apps; their satellite resource/config dirs go where each app's own !Run looks them up: !ZapFonts -> BootResources (!Boot.Resources), !ZapUser + !StrED_cfg -> Choices$Write (!Boot.Choices). See each app's Install doc / StartUp.SetupCfg.",
   "placements": [
-    { "repo": "tools/riscos-boot-build/vendor/PackMan/!PackMan",  "to": "Apps/!PackMan" },
-    { "source": "PartMgr",  "path": "Apps/Utilities/!PartMgr",  "to": "Utilities/Caution/!PartMgr" },
-    { "source": "StrongED", "path": "!StrongED",                "to": "Apps/!StrongED" },
-    { "source": "StrongED", "path": "!StrED_cfg",               "to": "!Boot/Choices/!StrED_cfg" },
-    { "source": "Zap",      "path": "!Zap",                     "to": "Apps/!Zap" },
-    { "source": "Zap",      "path": "!ZapFonts",                "to": "!Boot/Resources/!ZapFonts" },
-    { "source": "Zap",      "path": "!ZapUser",                 "to": "!Boot/Choices/!ZapUser" },
-    { "repo": "rafs/rafs116/!raFS",                             "to": "Utilities/!RaFS",           "packages_in_rafs": true,  "_note": "RaFS mode only: RaFS gives !Packages long names on a real 10-char (E-format) FileCore" },
-    { "repo": "tools/riscos-boot-build/vendor/PkgDisc/Pkg",     "to": "!Boot/Resources/Pkg",       "packages_in_rafs": true,  "_note": "RaFS mode only: the RaFS-wrapped !Packages the PackMan !Run hook mounts on launch" },
-    { "repo": "tools/riscos-boot-build/vendor/PackMan/!PackMan/Resources/!Packages", "to": "!Boot/Resources/!Packages", "packages_in_rafs": false, "_note": "plain mode (default): plain !Packages the boot Filer_Boots -- native long names (HostFS, or F-format FileCore), no RaFS" },
-    { "repo": "tools/riscos-boot-build/vendor/URLFetch/Modules", "to": "!Boot/Resources/!System/310/Modules/Network/URL" },
-    { "source": "MakeModes",  "path": "Utilities/Developer/!MakeModes", "to": "Utilities/!MakeModes" },
-    { "source": "AcornApps",  "path": "Apps/!ARPlayer",     "to": "Apps/!ARPlayer" },
-    { "source": "AcornUtils", "path": "Utilities/!SaveCMOS", "to": "Utilities/!SaveCMOS" },
-    { "source": "AcornUtils", "path": "Utilities/!Verify",   "to": "Utilities/!Verify" },
-    { "source": "AcornUtils", "path": "Utilities/!PhotoView","to": "Utilities/!PhotoView" },
-    { "source": "NetSurf",      "path": "!NetSurf",                     "to": "Apps/!NetSurf" },
-    { "source": "PlingStore",   "path": "!Store",                       "to": "Apps/!Store" }
+    {
+      "repo": "tools/riscos-boot-build/vendor/PackMan/!PackMan",
+      "to": "Apps/!PackMan"
+    },
+    {
+      "source": "PartMgr",
+      "path": "Apps/Utilities/!PartMgr",
+      "to": "Utilities/Caution/!PartMgr"
+    },
+    {
+      "source": "StrongED",
+      "path": "!StrongED",
+      "to": "Apps/!StrongED"
+    },
+    {
+      "source": "StrongED",
+      "path": "!StrED_cfg",
+      "to": "!Boot/Choices/!StrED_cfg"
+    },
+    {
+      "source": "Zap",
+      "path": "!Zap",
+      "to": "Apps/!Zap"
+    },
+    {
+      "source": "Zap",
+      "path": "!ZapFonts",
+      "to": "!Boot/Resources/!ZapFonts"
+    },
+    {
+      "source": "Zap",
+      "path": "!ZapUser",
+      "to": "!Boot/Choices/!ZapUser"
+    },
+    {
+      "repo": "rafs/rafs116/!raFS",
+      "to": "Utilities/!RaFS",
+      "packages_in_rafs": true,
+      "_note": "RaFS mode only: RaFS gives !Packages long names on a real 10-char (E-format) FileCore"
+    },
+    {
+      "repo": "tools/riscos-boot-build/vendor/PkgDisc/Pkg",
+      "to": "!Boot/Resources/Pkg",
+      "packages_in_rafs": true,
+      "_note": "RaFS mode only: the RaFS-wrapped !Packages the PackMan !Run hook mounts on launch"
+    },
+    {
+      "repo": "tools/riscos-boot-build/vendor/PackMan/!PackMan/Resources/!Packages",
+      "to": "!Boot/Resources/!Packages",
+      "packages_in_rafs": false,
+      "_note": "plain mode (default): plain !Packages the boot Filer_Boots -- native long names (HostFS, or F-format FileCore), no RaFS"
+    },
+    {
+      "repo": "tools/riscos-boot-build/vendor/URLFetch/Modules",
+      "to": "!Boot/Resources/!System/310/Modules/Network/URL"
+    },
+    {
+      "source": "MakeModes",
+      "path": "Utilities/Developer/!MakeModes",
+      "to": "Utilities/!MakeModes"
+    },
+    {
+      "source": "AcornApps",
+      "path": "Apps/!ARPlayer",
+      "to": "Apps/!ARPlayer"
+    },
+    {
+      "source": "AcornUtils",
+      "path": "Utilities/!SaveCMOS",
+      "to": "Utilities/!SaveCMOS"
+    },
+    {
+      "source": "AcornUtils",
+      "path": "Utilities/!Verify",
+      "to": "Utilities/!Verify"
+    },
+    {
+      "source": "AcornUtils",
+      "path": "Utilities/!PhotoView",
+      "to": "Utilities/!PhotoView"
+    },
+    {
+      "source": "NetSurf",
+      "path": "!NetSurf",
+      "to": "Apps/!NetSurf"
+    },
+    {
+      "source": "PlingStore",
+      "path": "!Store",
+      "to": "Apps/!Store"
+    }
   ],
   "_subtree_comment": "The ONLY sanctioned merges: !System module sets and !Boot updates (never apps). Each named tree is merged add-missing (our more-authoritative HardDisc4/PlingSystem copy wins every overlap; only genuinely-missing modules/files are added). NetSurf ships its module deps this way; AcornARMovie is a !Boot.Resources update (!ARMovie playback support).",
   "subtree_merges": [
-    { "source": "NetSurf",      "from": "!System",                   "to": "!Boot/Resources/!System" },
-    { "source": "NetSurf",      "from": "!Boot",                     "to": "!Boot" },
-    { "source": "AcornARMovie", "from": "!Boot",                     "to": "!Boot" }
+    {
+      "source": "NetSurf",
+      "from": "!System",
+      "to": "!Boot/Resources/!System"
+    },
+    {
+      "source": "NetSurf",
+      "from": "!Boot",
+      "to": "!Boot"
+    },
+    {
+      "source": "AcornARMovie",
+      "from": "!Boot",
+      "to": "!Boot"
+    }
   ],
   "_content_place_comment": "Non-!Boot/!System content (Acorn 3.7 games/sound/manuals). Each immediate child of the source's `container` dir is placed WHOLE onto the disc, but only where the authoritative disc (HardDisc4/ROOL) lacks that leafname. Whole apps only -- NEVER merged file-by-file (that spliced two !Flashers and duplicated !Help). ROOL keeps its whole app on every overlap; only Acorn-only extras are added.",
   "content_place": [
-    { "source": "AcornDiversions", "container": "Diversions" },
-    { "source": "AcornSound",      "container": "Sound" },
-    { "source": "AcornReplay",     "container": "Replay" },
-    { "source": "AcornManuals",    "container": "Manuals" }
+    {
+      "source": "AcornDiversions",
+      "container": "Diversions"
+    },
+    {
+      "source": "AcornSound",
+      "container": "Sound"
+    },
+    {
+      "source": "AcornReplay",
+      "container": "Replay"
+    },
+    {
+      "source": "AcornManuals",
+      "container": "Manuals"
+    }
   ],
   "_exclude_comment": "Root files dropped from the assembled disc: non-essential docs, and their host '.' becomes a '/' in the RISC OS leaf name (harmless, but tidy to omit).",
-  "exclude_root": ["LICENSE", "ReadMe.txt"]
+  "exclude_root": [
+    "LICENSE",
+    "ReadMe.txt"
+  ]
 }

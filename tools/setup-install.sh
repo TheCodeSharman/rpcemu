@@ -59,7 +59,17 @@ EXTRA_ROMS="${EXTRA_ROMS:-}"
 MODEL="${MODEL:-RPC710}"                                 # RPCEmu machine model
 MEM="${MEM:-32}"                                         # RAM (MiB)
 VRAM="${VRAM:-2}"                                        # VRAM (MiB)
-NETWORK="${NETWORK:-iptunnellingtap}"                    # RPCEmu network_type
+# macOS has no TUN/TAP, so network-macosx.c stubs the bridging/tunnelling
+# backends out. NAT (slirp) is the only backend left, and it COMPILES but
+# crashes at runtime -- slirp_select_fill segfaults out of network_nat_poll on
+# the emu thread, and network_nat_open never NULL-checks slirp_init(). So the
+# guest has no working network on macOS yet; default it off rather than ship a
+# crash. Set NETWORK=nat explicitly if you are working on that.
+if [ "$(uname -s)" = "Darwin" ]; then
+	NETWORK="${NETWORK:-off}"
+else
+	NETWORK="${NETWORK:-iptunnellingtap}"            # RPCEmu network_type
+fi
 TUNIF="${TUNIF:-rpctap0}"                                # tunnel interface
 TUNIP="${TUNIP:-172.31.0.1}"                             # tunnel host IP
 CMOS_SRC="${CMOS_SRC:-$REPO/tools/cmos/riscpc-hostfs.ram}"
@@ -254,7 +264,19 @@ if [ ! -x "$BIN" ]; then
 	exit 1
 fi
 cd "$INSTALL"
-exec env QT_QPA_PLATFORM='wayland;xcb' "$BIN"
+# Qt platform plugin: Linux wants native Wayland with an X11 fallback; macOS
+# has only cocoa, and forcing anything else makes Qt abort at startup (which
+# macOS then surfaces as a crash reporter dialog rather than an error).
+#
+# -style Fusion on macOS: Qt 5.15's native QMacStyle draws real AppKit controls
+# through private NSView calls and SEGVs on modern macOS (seen on Darwin 24.5:
+# QMacStylePrivate::drawNSViewInRect -> objc_msgSend -> EXC_BAD_ACCESS) the
+# moment any dialog with a push button is painted -- an RPCEmu error box is
+# enough. Fusion is drawn entirely by Qt and does not touch AppKit.
+case "$(uname -s)" in
+Darwin) exec "$BIN" -style Fusion ;;
+*)      exec env QT_QPA_PLATFORM='wayland;xcb' "$BIN" ;;
+esac
 LAUNCH
 chmod +x "$INSTALL/run"
 
