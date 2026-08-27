@@ -279,6 +279,36 @@ InitChip(void *pw)
 	_kernel_swi(OS_AddCallBack, &r, &r);
 }
 
+/// Podule_ReadInfo reason code bit: ROM address
+#define Podule_ReadInfo_ROMAddress	(1u << 4)
+
+/**
+ * Find our expansion card number from the base address we were initialised with
+ *
+ * @param podule_base Base address the module was initialised with
+ * @param[out] number Our expansion card number
+ */
+static _kernel_oserror *
+find_podule_number(unsigned int podule_base, int *number)
+{
+	int i;
+
+	for (i = 0; i < 8; i++) {
+		unsigned int rom = 0;
+
+		if (_swix(Podule_ReadInfo, _INR(0,3), Podule_ReadInfo_ROMAddress,
+		          &rom, sizeof(rom), i) != NULL) {
+			continue; // no card in this slot
+		}
+		if (rom == podule_base) {
+			*number = i;
+			return NULL;
+		}
+	}
+
+	return &ERR_ENXIO;
+}
+
 /**
  * Module initialisation code
  */
@@ -307,15 +337,17 @@ initialise(const char *cmd_tail, int podule_base, void *pw)
 		return err;
 	}
 
-	InitChip(pw);
-
 	err = _swix(OS_ClaimDeviceVector, _INR(0,4), 13, device_irq, pw, podule_base, 1);
 	if (err) {
 		return err;
 	}
 
+	if ((err = find_podule_number((unsigned int) podule_base, &work.podule_num)) != NULL) {
+		return err;
+	}
+
 	// Enable Podule IRQs
-	err = _swix(Podule_ReadInfo, _INR(0,3), (1 << 16) | (1 << 15), ribuff, sizeof(ribuff), podule_base);
+	err = _swix(Podule_ReadInfo, _INR(0,3), (1 << 16) | (1 << 15), ribuff, sizeof(ribuff), work.podule_num);
 	if (err) {
 		return err;
 	}
@@ -329,6 +361,9 @@ initialise(const char *cmd_tail, int podule_base, void *pw)
 
 	// The value passed here no longer matters, provided it's non-zero
 	network_swi_irq((int *) 1);
+
+	// Must be last: queues a callback, which must not outlive the module
+	InitChip(pw);
 
 	return NULL;
 }
@@ -346,6 +381,9 @@ finalise(int fatal, int podule, void *pw)
 
 	network_swi_irq(0);
 	_swix(OS_ReleaseDeviceVector, _INR(0,4), 13, device_irq, pw, podule, 1);
+
+	// A callback queued by InitChip must not outlive the module
+	_swix(OS_RemoveCallBack, _INR(0,1), initialise_callback, pw);
 
 	SendServiceDCIDriverStatus(DCIDRIVER_DYING); // flag we're stopping
 
