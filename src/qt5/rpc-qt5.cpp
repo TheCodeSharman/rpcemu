@@ -297,11 +297,35 @@ vidcstartthread(void)
 void
 vidcendthread(void)
 {
-//	quited = 1;
-//	if (pthread_cond_signal(&video_cond)) {
-//		fatal("Couldn't signal vidc thread");
-//	}
-//	pthread_join(video_thread, NULL);
+	// Stop the video thread and wait for it to actually exit, before the
+	// caller (endrpcemu()) goes on to free the framebuffer, VRAM and RAM
+	// that the thread is still reading.
+	//
+	// Take video_mutex first. The video thread holds it for as long as it is
+	// running and drops it only inside pthread_cond_wait(), so acquiring it
+	// here means the thread is parked in the wait -- which closes the lost-
+	// wakeup race that setting the flag and signalling unlocked would leave:
+	// a signal delivered between the `while (!quited)` test and the wait is
+	// missed, and the join below would then never return. (Emulator::reset()
+	// takes the mutex for the same "ensure the Video thread is idle" reason.)
+	pthread_mutex_lock(&video_mutex);
+
+	quited = 1;
+
+	if (pthread_cond_signal(&video_cond)) {
+		fatal("Couldn't signal vidc thread");
+	}
+
+	pthread_mutex_unlock(&video_mutex);
+
+	// Joining is safe HERE, and would NOT be from the GUI thread. The video
+	// thread emits main_display_signal as a Qt::BlockingQueuedConnection, so
+	// it sits inside emit() until the GUI thread services it. This runs on the
+	// emu thread -- endrpcemu() at the end of Emulator::mainemuloop() -- so the
+	// GUI thread is still pumping events and that emit can complete. Called
+	// from the GUI thread it would deadlock instead, which is why this body
+	// was previously commented out.
+	pthread_join(video_thread, NULL);
 }
 
 /**
@@ -365,6 +389,15 @@ rpcemu_video_update(const uint32_t *buffer, int xsize, int ysize,
 	video_update.double_size = double_size;
 	video_update.host_xsize = host_xsize;
 	video_update.host_ysize = host_ysize;
+
+	// Once shutdown has begun, do not enter the emit at all.
+	// main_display_signal is a Qt::BlockingQueuedConnection, so emitting parks
+	// this thread until the GUI thread services it -- and during shutdown the
+	// GUI thread is itself waiting for the emu thread, which is waiting for
+	// this one. Dropping the final frame is free; deadlocking is not.
+	if (quited) {
+		return;
+	}
 
 	// Send update message to GUI
 	emit pMainWin->main_display_signal(video_update);

@@ -487,8 +487,17 @@ MainWindow::closeEvent(QCloseEvent *event)
 	// Inform the emulator thread that we're quitting
 	emit this->emulator.exit_signal();
 
-	// Wait until emulator thread has exited
-	this->emulator.thread()->wait();
+	// Wait until emulator thread has exited.
+	//
+	// Keep servicing our own event loop while waiting. The emulator thread's
+	// shutdown path (endrpcemu() -> closevideo() -> vidcendthread()) joins the
+	// video thread, and the video thread can be parked inside a
+	// Qt::BlockingQueuedConnection emit of main_display_signal that only THIS
+	// thread can complete. Blocking flat here would close a three-way cycle:
+	// GUI waits for emu, emu waits for vidc, vidc waits for GUI.
+	while (!this->emulator.thread()->wait(10)) {
+		QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+	}
 
 	// Pass on the close message for the main window, this
 	// will cause the program to quit
