@@ -74,7 +74,7 @@ SOURCES =	../superio.c \
 		plt_sound.cpp
 
 # NAT Networking
-linux | win32 {
+linux | win32 | macx {
 	HEADERS +=	../network-nat.h \
 			nat_edit_dialog.h \
 			nat_list_dialog.h
@@ -159,9 +159,24 @@ linux {
 }
 
 unix {
-	SOURCES +=	keyboard_x.c \
-			../hostfs-unix.c \
+	SOURCES +=	../hostfs-unix.c \
 			../rpc-linux.c
+}
+
+unix:!macx {
+	SOURCES +=	keyboard_x.c
+}
+
+macx {
+	SOURCES +=	keyboard_macosx.c \
+			../network-macosx.c \
+			../network.c \
+			network_dialog.cpp
+	HEADERS +=	../network.h \
+			network_dialog.h
+
+	# kVK_* virtual key constants live in Carbon/HIToolbox
+	LIBS +=		-framework Carbon
 }
 
 # Place exes in top level directory

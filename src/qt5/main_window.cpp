@@ -561,7 +561,11 @@ MainWindow::keyPressEvent(QKeyEvent *event)
 
 	// Regular case pass key press onto the emulator
 	if (!event->isAutoRepeat()) {
+#if defined(Q_OS_MACOS)
+		native_keypress_event(event->nativeVirtualKey());
+#else
 		native_keypress_event(event->nativeScanCode());
+#endif
 	}
 }
 
@@ -581,7 +585,11 @@ MainWindow::keyReleaseEvent(QKeyEvent *event)
 
 	// Regular case pass key release onto the emulator
 	if (!event->isAutoRepeat()) {
+#if defined(Q_OS_MACOS)
+		native_keyrelease_event(event->nativeVirtualKey());
+#else
 		native_keyrelease_event(event->nativeScanCode());
+#endif
 	}
 }
 
