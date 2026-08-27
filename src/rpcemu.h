@@ -69,10 +69,11 @@ extern "C" {
 #endif
 
 /* Does this platform support one or more of our networking types? */
-/* Note that networking is currently supported on Mac OS X with the Cocoa GUI
-   version but not with the Allegro GUI. */
+/* macOS has no TUN/TAP, so bridging and IP tunnelling are unavailable there
+   (network-macosx.c stubs them out) and NAT is the usable backend. NAT is
+   slirp, which is plain userspace sockets and builds on any of these. */
 #if defined __linux || defined __linux__ || defined WIN32 || defined _WIN32 || \
-    defined RPCEMU_COCOA_GUI
+    defined RPCEMU_COCOA_GUI || defined __APPLE__
 #define RPCEMU_NETWORKING
 #endif
 
