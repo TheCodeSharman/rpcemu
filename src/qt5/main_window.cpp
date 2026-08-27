@@ -604,7 +604,23 @@ MainWindow::keyPressEvent(QKeyEvent *event)
 
 	// Regular case pass key press onto the emulator
 	if (!event->isAutoRepeat()) {
+#if defined(Q_OS_MACOS)
+		// Caps Lock is a latch on macOS: the modifier mask toggles, so Qt
+		// reports a press when it goes on and a release only when it is
+		// pressed again. Forwarded literally, the guest would hold Caps Lock
+		// down between the two -- and RISC OS, which toggles its caps state on
+		// the make code alone, would end up inverted against the host's own
+		// Caps Lock LED. Send a complete press-and-release for every change
+		// instead, so one host press is exactly one guest toggle.
+		if (event->key() == Qt::Key_CapsLock) {
+			native_keypress_event(event->nativeVirtualKey());
+			native_keyrelease_event(event->nativeVirtualKey());
+			return;
+		}
+		native_keypress_event(event->nativeVirtualKey());
+#else
 		native_keypress_event(event->nativeScanCode());
+#endif
 	}
 }
 
@@ -624,7 +640,17 @@ MainWindow::keyReleaseEvent(QKeyEvent *event)
 
 	// Regular case pass key release onto the emulator
 	if (!event->isAutoRepeat()) {
+#if defined(Q_OS_MACOS)
+		// See keyPressEvent: the other half of the Caps Lock latch.
+		if (event->key() == Qt::Key_CapsLock) {
+			native_keypress_event(event->nativeVirtualKey());
+			native_keyrelease_event(event->nativeVirtualKey());
+			return;
+		}
+		native_keyrelease_event(event->nativeVirtualKey());
+#else
 		native_keyrelease_event(event->nativeScanCode());
+#endif
 	}
 }
 
