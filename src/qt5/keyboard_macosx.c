@@ -74,7 +74,31 @@ static const KeyMapInfo key_map[] = {
 	{ kVK_ANSI_LeftBracket, { 0x54 } },	// [
 	{ kVK_ANSI_RightBracket, { 0x5b } },	// ]
 	{ kVK_Return, { 0x5a } },		// Return
+
+	/* Modifier keys. macOS reports these through NSEvent's modifierFlags mask
+	   rather than as key events, but Qt's cocoa plugin turns each change of the
+	   mask back into a QKeyEvent in -[QNSView flagsChanged:], and sets
+	   nativeVirtualKey() to the real [nsevent keyCode]. So they arrive here like
+	   any other key and need nothing more than a table entry -- which is why
+	   Ctrl (the one entry that was here) worked while Shift and Alt did not.
+
+	   Option is mapped to Alt: it is the key Apple labels "alt", and RISC OS
+	   needs Alt far more than it needs anything Command could stand for.
+	   Command follows the other platforms' Left/Right Win mapping.
+
+	   Qt derives press-versus-release from a delta on the whole mask, so it
+	   cannot see the second of two same-side-mask modifiers: holding left Shift
+	   and then pressing right Shift produces no event, because the Shift bit was
+	   already set. Both are mapped anyway -- either alone behaves correctly. */
+	{ kVK_Shift, { 0x12 } },		// Left Shift
+	{ kVK_RightShift, { 0x59 } },		// Right Shift
 	{ kVK_Control, { 0x14 } },		// Left Ctrl
+	{ kVK_RightControl, { 0xe0, 0x14 } },	// Right Ctrl
+	{ kVK_Option, { 0x11 } },		// Left Alt
+	{ kVK_RightOption, { 0xe0, 0x11 } },	// Right Alt
+	{ kVK_CapsLock, { 0x58 } },		// Caps Lock (see main_window.cpp)
+	{ kVK_Command, { 0xe0, 0x1f } },	// Left Win
+	{ kVK_RightCommand, { 0xe0, 0x27 } },	// Right Win
 	{ kVK_ANSI_A, { 0x1c } },		// A
 	{ kVK_ANSI_S, { 0x1b } },		// S
 	{ kVK_ANSI_D, { 0x23 } },		// D
