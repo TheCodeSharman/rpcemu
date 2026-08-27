@@ -63,6 +63,8 @@ FEATURES=(
   "feature/iptunnel-persistent-tap:IPTunnelling: attach to a pre-created persistent TAP (unprivileged)"
   "feature/spork-nat-broadcast-relay:NAT broadcast relay: in-process Access+/ShareFS/Freeway over SLiRP"
   "feature/spork-hostcmd:HostCmd: drive the RISC OS command line from the host (+ rpcemu-run, MCP-ready)"
+  "feature/vidc-shutdown-join:VIDC shutdown: actually stop and join the video thread, without deadlocking"
+  "feature/macos:macOS: build and run the Qt5 interpreter on Darwin"
 )
 
 # Refuse to run with a dirty (tracked) working tree.

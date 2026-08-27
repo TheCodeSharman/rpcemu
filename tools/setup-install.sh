@@ -59,14 +59,10 @@ EXTRA_ROMS="${EXTRA_ROMS:-}"
 MODEL="${MODEL:-RPC710}"                                 # RPCEmu machine model
 MEM="${MEM:-32}"                                         # RAM (MiB)
 VRAM="${VRAM:-2}"                                        # VRAM (MiB)
-# macOS has no TUN/TAP, so network-macosx.c stubs the bridging/tunnelling
-# backends out. NAT (slirp) is the only backend left, and it COMPILES but
-# crashes at runtime -- slirp_select_fill segfaults out of network_nat_poll on
-# the emu thread, and network_nat_open never NULL-checks slirp_init(). So the
-# guest has no working network on macOS yet; default it off rather than ship a
-# crash. Set NETWORK=nat explicitly if you are working on that.
+# macOS has no TUN/TAP, so network-macosx.c stubs the bridging and IP
+# tunnelling backends out; NAT (slirp) is the only one that works there.
 if [ "$(uname -s)" = "Darwin" ]; then
-	NETWORK="${NETWORK:-off}"
+	NETWORK="${NETWORK:-nat}"
 else
 	NETWORK="${NETWORK:-iptunnellingtap}"            # RPCEmu network_type
 fi
