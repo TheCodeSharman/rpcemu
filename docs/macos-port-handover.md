@@ -1,27 +1,31 @@
 # macOS port — handover
 
-Written 2026-08-27. Everything below was done on `thecodesharman-macbookair`
-(Darwin 24.5, arm64).
+Written 2026-08-27, updated 2026-08-28. Everything below was done on
+`thecodesharman-macbookair` (Darwin 24.5, arm64).
 
 ## How this started
 
 A question about BBC BASIC style in `RiscPc/tools/video-source/ModeServ.bas`:
 is `MODE "X320 Y256 C256 F50"` enough to make the parser redundant? Settling
 that needs a RISC OS 3.70 guest, which needs RPCEmu, which did not build on
-macOS. **The original question is still unanswered** — see the last section.
+macOS. **Answered on 2026-08-28: yes** — see the last section.
 
 ## Repo state (all pushed unless noted)
 
 | Repo / branch | Commit | What |
 |---|---|---|
-| `rpcemu` `feature/macos` | `7123d5f` | the port + `RPCEMU_NETWORKING` for Darwin |
+| `rpcemu` `feature/macos` | `129a3f7` | the port, `RPCEMU_NETWORKING`, modifier keys |
 | `rpcemu` `feature/vidc-shutdown-join` | `cc58488` | video-thread shutdown fix |
 | `rpcemu` `lab` | `2d7e2ea` | devenv, Makefile, setup-install, sources.json, FEATURES |
 | `nix-config` `main` | `5dea769` | `trusted-users` via `environment.etc` |
 
-**Not pushed:** `integration` is rebuilt locally (`103dc22`) but not force-pushed.
-Their workflow is `git -C tree push --force-with-lease origin integration`; left
-undone deliberately because it rewrites a shared branch.
+**Not pushed:** `integration` is rebuilt locally (`ef78dab`, reintegrated
+2026-08-28 to pick up the modifier-key fix) but not force-pushed. Their workflow
+is `git -C tree push --force-with-lease origin integration`; left undone
+deliberately because it rewrites a shared branch.
+
+`RiscPc` `feature/modeserv-mode-string` (`d3bff54`) carries the ModeServ change
+the MODE question produced. Not pushed.
 
 `test/macos-vidcfix` is a local scratch branch. Don't push it.
 
@@ -31,38 +35,59 @@ undone deliberately because it rewrites a shared branch.
   present, ~135 MIPS. Screenshot recipe below.
 - Three consecutive boot → clean-Exit cycles, exit code 0, no crash reports.
 - NAT survives a soak that previously killed it in ~20 s.
-- HostCmd responds (`rpcemu-run -- Cat HostFS::HostFS.$` lists the tree).
+- HostCmd responds (`rpcemu-run -- Cat HostFS::HostFS.$` lists the tree), and
+  drives BASIC end to end — see the resolved issue 1 below.
+- **Modifier keys reach the guest** (2026-08-28). Shift, Ctrl, Alt and Caps Lock
+  all arrive; confirmed by holding Shift through a boot.
 
 ## What is NOT verified
 
 - **Networking actually working in the guest.** Only "no longer crashes". No
   DHCP lease or ping has been observed from inside RISC OS.
-- **Modifier keys.** Cloverleaf added a whole `NSEvent.modifierFlags` layer
-  (`keyboard_handle_modifier_keys`) because macOS delivers modifiers as a mask,
-  not key events. We deliberately took only their *table* and kept upstream's
-  stateless `keyboard_map_key`. Whether Qt populates `nativeVirtualKey()` for
-  Shift/Ctrl/Alt on macOS is **untested**. If modifiers don't reach RISC OS,
-  that's why.
 - Anything on Linux. Every lab change is platform-conditional but none of it
   has been re-run on the Linux box.
 
 ## Open issues
 
-1. **HostCmd wedges on `BASIC -load`.** Running
-   `BASIC -load <file> { < <cmds> }` through `rpcemu-run` left BASIC in
-   immediate mode inside the HostCmd callback and the gateway stopped
-   responding — subsequent `Echo` timed out; only a restart cleared it. The
-   `{ < ... }` redirection is likely mangled by `rpcemu-run` splitting it
-   across argv. **Next thing to try** (was in progress when this was written):
-   put the whole command in an Obey file and run `Obey <file>` instead —
-   `hostfs/runtest,feb` is already written and ready.
-2. **Window opens off-screen** — observed at `x=1435` and `x=-795` on a
+1. **Window opens off-screen** — observed at `x=1435` and `x=-795` on a
    1440-wide display. Cosmetic but annoying; nothing looked at it yet.
-3. **`reintegrate.sh` misreports a missing local branch as a disjointness
+2. **`reintegrate.sh` misreports a missing local branch as a disjointness
    conflict.** Cost an hour. It says "rework so the branches touch disjoint
    code" when the real cause can be that the branch isn't checked out locally.
-4. **`PlingSystem.zip` / `BonusBinDev.zip` pins will expire again** — ROOL
+3. **`PlingSystem.zip` / `BonusBinDev.zip` pins will expire again** — ROOL
    publishes no versioned variant. `sources.json` records what to check.
+
+## Resolved since
+
+**HostCmd wedging on `BASIC -load` (was issue 1).** The redirection was a red
+herring. When the desktop is up, HostCmd runs the command in a TaskWindow child
+(`hostcmd.s`, `tw_prefix`), and a BASIC that reaches the `>` prompt sits there
+forever because nothing sends it TaskWindow input — no Morio, so the gateway
+never reports the command finished. The fix is to make BASIC incapable of
+reaching a prompt: **`BASIC -quit <file>`** runs the program and exits, needs no
+stdin at all, and returns cleanly even on an untrapped error. `-quit` and
+`-load` both accept a *text* file and tokenise it, so the test can stay
+plain text.
+
+Two more things that cost time, worth knowing before writing another guest test:
+
+- **Don't redirect BASIC's output to a file across a mode change.** `{ > file }`
+  catches the VDU sequences the mode change emits and the result lines come out
+  interleaved and out of order. Accumulate results in an array and write them
+  with `OPENOUT`/`BPUT#` at the end — file I/O is immune, and the host can read
+  the file straight out of `hostfs/` afterwards.
+- **`ON ERROR LOCAL ... :ENDPROC` is "badly nested"** and kills the run before it
+  writes anything. Keep error handlers at the top level.
+
+**Modifier keys (was under "not verified").** Shift, Alt and Caps Lock never
+reached the guest; `keyboard_macosx.c` simply had no table entries for them, and
+`kVK_Control` being the only modifier present is exactly why Ctrl alone worked.
+No `NSEvent.modifierFlags` layer is needed: Qt's cocoa plugin already turns each
+change of the mask back into a QKeyEvent in `-[QNSView flagsChanged:]` and passes
+`[nsevent keyCode]` through as `nativeVirtualKey`. Caps Lock needed a special
+case in `main_window.cpp` because macOS reports it as a *latch*. One Qt limit
+survives: `flagsChanged:` derives press-vs-release from a delta on the whole
+mask, so the second of two modifiers sharing a mask bit produces no event.
 
 ## Gotchas worth keeping
 
@@ -105,35 +130,60 @@ plugin (`libqcocoa.dylib`) is in `qtbase.bin`, *not* the default output; the
 found", `Could not find the Qt platform plugin "cocoa" in ""`, and
 `Unknown module(s) in QT: multimedia`.
 
-## Where the MODE question stands
+## The MODE question, answered
 
-Established from source, not from running anything:
+`MODE "X320 Y256 C256 F50"` works on RISC OS 3.70 and the ModeServ parser is
+redundant. Measured in the guest, not reasoned about.
 
-- RISC OS 3.70's ROM BASIC **does** accept `MODE <string>`: `Stmt2` at the
-  `RO_3_70` tag prepends `"WimpMode "` and calls `OS_CLI`.
-- `*WimpMode` → `Wimp_SetMode`, which at `RO_3_70` only calls `int_setmode`
-  when `taskcount > 0`; otherwise it records the mode "for next time".
-- A single-tasking program launched **from the desktop** leaves all Wimp tasks
-  registered, so `taskcount > 0` and the mode does change. MS's original claim
-  that it works was right; my first reading of it was wrong.
-- The remaining open question is only the `taskcount == 0` case — `*BASIC` from
-  a bare supervisor prompt with the desktop never started.
-- RISC OS 3.70's kernel has `ScreenModeReason_Limit = 4`, so there is no
-  `OS_ScreenMode 15`; modern BASIC's string path does not exist on this ROM.
+The thing that made this look hard: with the guest's stock monitor definition
+the small mode was **refused**, and the two call paths refused it in different
+words —
 
-`hostfs/modetest,fff` and `hostfs/modein,fff` are already written and contain
-the test (reads mode vars, does `MODE "X320 Y256 C256 F50"`, reads them back,
-prints `RESULT before= after= err=`). Blocked only on issue 1 above.
+| call | AKF60 loaded | AKF50 loaded |
+|---|---|---|
+| `MODE "X640 Y480 C256 F60"` | ok | ok |
+| `MODE "X320 Y256 C256 F50"` | `This screen mode is unsuitable for displaying the desktop` | ok → 320×256 |
+| `OS_ScreenMode 0`, selector 320×256 F50 | `Screen mode not available` (&1ED) | ok → 320×256 |
+| `OS_ScreenMode 0`, selector 320×256 F-1 | ok → 320×256 | ok → 320×256 |
+
+**It is the monitor definition, every time.** Both paths were reporting the same
+"this mode is not in the MDF" failure, the Wimp phrasing it as unsuitable for the
+desktop and the kernel as not available. Swapping AKF60 for AKF50 flips which
+frame rates exist — F70 works under AKF60 and fails under AKF50, F50 vice versa.
+It has nothing to do with single- versus multi-tasking, and nothing to do with
+`taskcount`; that whole line of enquiry was chasing the wrong variable.
+
+The install selects the MDF in `hostfs/!Boot/Choices/Boot/PreDesk/Configure/`:
+`VRAM,feb` loads AKF50, `NoVRAM,feb` loads AKF60. Note that this lives in the
+HostFS tree, **not** in CMOS, so a change to it survives even an unclean kill of
+the emulator — and conversely, `*Status MonitorType` reporting `Auto` tells you
+nothing about which MDF is actually loaded.
+
+The routing claim in the previous draft stands — the refusal was worded by the
+Wimp, so `MODE <string>` really does reach `Wimp_SetMode`. What was wrong was the
+conclusion drawn from it: that this makes the string form unable to reach the
+small modes the bench cares about. Under AKF50 it reaches 320×256 perfectly
+well, and the Wimp raises no objection.
+
+Tests are left in `installs/riscos-371/hostfs/`: `modetst3,fff` (string vs
+selector, both mode strings and the `OS_ScreenMode 0` block) and `modetst4,fff`
+(frame-rate sweep at 320×256, reporting the error number and message). Each has
+a `runtst<N>,feb` Obey wrapper; run one with
+
+    rpcemu-run --socket hostcmd.sock -- Obey HostFS::HostFS.$.runtst3
+
+and read the answer out of `hostfs/mode<N>out` on the host side.
 
 ## For ModeServ itself
 
 Two things survive from the original review, independent of all the above:
 
-- The four globals `px%/py%/pd%/pr%` are a hidden return channel; BASIC V has
-  `RETURN` parameters for exactly this, and they work on `DEF FN` at `RO_3_70`.
-  MS's reasoning was the library-isolation one: `LIBRARY "PatLib"` shares one
-  global namespace, and PatLib already exports `W% H% UX% UY% CX% CY% ...`.
+- The four globals `px%/py%/pd%/pr%` were a hidden return channel out of
+  `FNparse`. **Done** — `RiscPc` `feature/modeserv-mode-string` (`d3bff54`)
+  deletes `FNparse`, `FNdepth` and all four globals, and hands the command tail
+  to `MODE` directly. The wire protocol is unchanged, and `MODES` still
+  enumerates via `OS_ScreenMode 2`, which is where an unavailable frame rate is
+  properly answered.
 - PatLib has global `CX%/CY%/R%` *and* local `cx%/cy%/r%` holding the same
   values, distinguished only by case. That is a latent bug waiting to happen.
-
-Neither change has been made.
+  **Not done.**
