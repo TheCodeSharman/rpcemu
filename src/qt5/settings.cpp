@@ -250,6 +250,15 @@ config_load(Config * config)
 	config->cpu_idle = 0;
 	config->cpu_idle = settings.value("cpu_idle", "0").toInt();
 
+	config->hostcmd_enabled = settings.value("hostcmd_enabled", "1").toInt();
+	{
+		QByteArray hcs = settings.value("hostcmd_socket", "").toString().toUtf8();
+		if (snprintf(config->hostcmd_socket, sizeof(config->hostcmd_socket), "%s", hcs.constData()) >= (int) sizeof(config->hostcmd_socket)) {
+			rpclog("config_load: hostcmd_socket too long - ignored\n");
+			config->hostcmd_socket[0] = '\0';
+		}
+	}
+
 	config->show_fullscreen_message = settings.value("show_fullscreen_message", "1").toInt();
 
 	sText = settings.value("network_capture", "").toString();
@@ -337,6 +346,8 @@ config_save(Config *config)
 	}
 
 	settings.setValue("cpu_idle", config->cpu_idle);
+	settings.setValue("hostcmd_enabled", config->hostcmd_enabled);
+	settings.setValue("hostcmd_socket", config->hostcmd_socket);
 	settings.setValue("show_fullscreen_message", config->show_fullscreen_message);
 
 	if (config->network_capture) {
