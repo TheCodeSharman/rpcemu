@@ -84,6 +84,7 @@ Config config = {
 	NULL,			/* ipaddress */
 	NULL,			/* macaddress */
 	NULL,			/* bridgename */
+	NULL,			/* tunnel_ifname */
 	0,			/* refresh */
 	1,			/* soundenabled */
 	1,			/* cdromenabled */
